@@ -310,6 +310,44 @@ Outputs: `metrics_by_layer.csv`, `metrics_by_emotion.csv`, `stability_bootstrap.
 
 ---
 
+## Pipeline validation (smoke test, not a result)
+
+Before spending GPU hours on a 32B model, the whole three-stage pipeline was run on
+CPU with `EleutherAI/pythia-160m` (12 layers, `hidden_size=768`), the default
+10-emotion list, 120 stories per emotion and 300 neutral stories:
+
+| | |
+|---|---|
+| top-1 accuracy, held-out validation topics | **0.746** (chance 0.100) |
+| macro one-vs-rest AUROC | **0.939** |
+| best layer | 6 of 12 (mid-network, as the paper reports) |
+| bootstrap direction stability | mean cosine 0.947 |
+| split-half agreement | mean cosine 0.716, min 0.370 |
+| neutral PCs removed | 8–28 depending on layer |
+
+The emotion×emotion cosine geometry is interpretable even at 160M parameters:
+afraid/ashamed/sad group together, afraid↔proud is strongly negative, calm↔angry is
+negative.
+
+This is a check that the pipeline extracts real signal, **not** a research result —
+160M parameters, a fraction of the stories, and no attempt at tuning. Split-half
+agreement in particular is limited by having only ~35 topics per half; expect it to
+rise with the full 1,200 stories per emotion.
+
+Reproduce with:
+
+```bash
+python -m extract_emotion_vectors.extract_activations \
+    --set model_name=EleutherAI/pythia-160m --set dtype=float32 \
+    --set stories_per_emotion=120 --set neutral_stories=300 \
+    --set run_name=pythia160m_10emo --set layer_spec=all --set device_map=None
+# then compute_directions and evaluate_directions with the same --set flags
+```
+
+(`dtype=float32` because bf16 matmuls are roughly 30× slower on CPU.)
+
+---
+
 ## Reproducibility
 
 Every stage writes `run_config*.txt` (human-readable) and `run_manifest*.json`

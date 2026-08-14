@@ -283,12 +283,13 @@ def make_plots(
         if primary.empty or primary[metric].isna().all():
             continue
         fig, ax = plt.subplots()
+        labels = []
         for i, split in enumerate(sorted(primary["split"].unique())):
             rows = primary[primary["split"] == split].sort_values("layer")
-            colour = plotting.SERIES[i % len(plotting.SERIES)]
+            colour = plotting.SERIES[i]
             ax.plot(rows["layer"], rows[metric], color=colour, label=split)
-            plotting.label_line_end(ax, rows["layer"].to_numpy(), rows[metric].to_numpy(),
-                                    split, colour)
+            labels.append((rows["layer"].to_numpy(), rows[metric].to_numpy(), split, colour))
+        plotting.label_line_ends(ax, labels)
         if chance_col is not None:
             chance = float(primary[chance_col].iloc[0])
             ax.axhline(chance, color=plotting.INK_MUTED, linestyle=(0, (4, 3)), linewidth=1)
@@ -298,7 +299,7 @@ def make_plots(
         else:
             ax.axhline(0.5, color=plotting.INK_MUTED, linestyle=(0, (4, 3)), linewidth=1)
         ax.set_ylim(0, 1.02)
-        ax.legend(loc="lower right")
+        ax.legend(loc="best")
         plotting.finish(
             fig, ax,
             title=f"{label} of mean-difference emotion directions",
@@ -313,6 +314,7 @@ def make_plots(
         fig, ax = plt.subplots()
         # Per-emotion detail as unlabelled hairlines: identity lives in the CSV,
         # not in a fourth-plus categorical hue.
+        labels = []
         if not split_half.empty:
             for emotion, rows in split_half.groupby("emotion"):
                 rows = rows.sort_values("layer")
@@ -321,16 +323,17 @@ def make_plots(
             mean_sh = split_half.groupby("layer")["split_half_cosine"].mean().sort_index()
             ax.plot(mean_sh.index, mean_sh.to_numpy(), color=plotting.SERIES[0],
                     label="split-half agreement (mean)", zorder=3)
-            plotting.label_line_end(ax, mean_sh.index.to_numpy(), mean_sh.to_numpy(),
-                                    "split-half", plotting.SERIES[0])
+            labels.append((mean_sh.index.to_numpy(), mean_sh.to_numpy(),
+                           "split-half", plotting.SERIES[0]))
         if not stability.empty:
             mean_boot = stability.groupby("layer")["direction_cosine_mean"].mean().sort_index()
             ax.plot(mean_boot.index, mean_boot.to_numpy(), color=plotting.SERIES[1],
                     label="bootstrap stability (mean)", zorder=3)
-            plotting.label_line_end(ax, mean_boot.index.to_numpy(), mean_boot.to_numpy(),
-                                    "bootstrap", plotting.SERIES[1])
+            labels.append((mean_boot.index.to_numpy(), mean_boot.to_numpy(),
+                           "bootstrap", plotting.SERIES[1]))
+        plotting.label_line_ends(ax, labels)
         ax.set_ylim(0, 1.02)
-        ax.legend(loc="lower right")
+        ax.legend(loc="best")
         plotting.finish(
             fig, ax,
             title="Direction stability across resamples of the training topics",

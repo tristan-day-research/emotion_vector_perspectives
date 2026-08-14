@@ -98,22 +98,45 @@ def sequential_cmap(name: str = "emotion_sequential"):
     return LinearSegmentedColormap.from_list(name, list(SEQUENTIAL), N=256)
 
 
-def label_line_end(ax, x, y, text: str, color: str, dx: float = 0.0) -> None:
-    """Direct-label a series at its last point, in ink rather than series colour."""
-    if len(x) == 0:
-        return
-    ax.annotate(
-        text,
-        xy=(x[-1], y[-1]),
-        xytext=(6 + dx, 0),
-        textcoords="offset points",
-        va="center",
-        ha="left",
-        fontsize=8.5,
-        color=INK_SECONDARY,
-    )
-    ax.plot([x[-1]], [y[-1]], marker="o", color=color, markersize=5, zorder=5,
-            markeredgecolor=SURFACE, markeredgewidth=1.2)
+def label_line_ends(ax, entries: list[tuple[object, object, str, str]], min_gap_pt: float = 11.0) -> None:
+    """Direct-label several series at their last points, avoiding collisions.
+
+    ``entries`` is ``[(x, y, text, colour), ...]``. Series that end at similar
+    values would otherwise print their labels on top of each other, so labels are
+    nudged apart vertically (in points) while their dots stay on the data.
+
+    Label text uses ink colours, never the series colour; the coloured dot beside
+    it carries identity.
+    """
+    placed: list[tuple[float, float]] = []  # (data_y, offset_pt)
+    fig = ax.get_figure()
+
+    def to_points(data_y: float) -> float:
+        return float(ax.transData.transform((0, data_y))[1]) / fig.dpi * 72.0
+
+    for x, y, text, colour in sorted(
+        (e for e in entries if len(e[0])), key=lambda e: float(e[1][-1])
+    ):
+        end_x, end_y = x[-1], float(y[-1])
+        offset = 0.0
+        for prev_y, prev_offset in placed:
+            gap = (to_points(end_y) + offset) - (to_points(prev_y) + prev_offset)
+            if abs(gap) < min_gap_pt:
+                offset += min_gap_pt - gap
+        placed.append((end_y, offset))
+
+        ax.annotate(
+            text,
+            xy=(end_x, end_y),
+            xytext=(7, offset),
+            textcoords="offset points",
+            va="center",
+            ha="left",
+            fontsize=8.5,
+            color=INK_SECONDARY,
+        )
+        ax.plot([end_x], [end_y], marker="o", color=colour, markersize=5, zorder=5,
+                markeredgecolor=SURFACE, markeredgewidth=1.2)
 
 
 def integer_xaxis(ax) -> None:
@@ -137,11 +160,15 @@ def finish(
 
     ``right_margin`` reserves room on the right for end-of-line direct labels.
     """
+    # Choose ticks from the data range first, then widen the limit. Widening before
+    # picking ticks invents one past the last data point (a "layer 14" that has no
+    # layer 14).
+    data_left, data_right = ax.get_xlim()
     if integer_x:
         integer_xaxis(ax)
+        ax.set_xticks([t for t in ax.get_xticks() if data_left <= t <= data_right])
     if right_margin:
-        left, right = ax.get_xlim()
-        ax.set_xlim(left, right + (right - left) * right_margin)
+        ax.set_xlim(data_left, data_right + (data_right - data_left) * right_margin)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     if subtitle:
