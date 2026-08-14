@@ -1,0 +1,26 @@
+# Core numerics / modelling
+torch>=2.4
+transformers>=4.45
+accelerate>=0.34
+safetensors>=0.4.3
+numpy>=1.26
+scipy>=1.11
+
+# Data
+datasets>=2.21
+pyarrow>=15.0
+pandas>=2.1
+huggingface_hub>=0.25
+
+# Evaluation / plots
+scikit-learn>=1.4
+matplotlib>=3.8
+
+# Utilities
+tqdm>=4.66
+
+# Optional: 4/8-bit quantisation (config.quantization). Not needed for bf16 runs.
+# bitsandbytes>=0.43
+
+# Optional: Cloudflare R2 (S3-compatible) activation mirroring
+boto3>=1.34

@@ -1,0 +1,45 @@
+# --- Data, model weights, caches (never commit) ---
+data/**
+!data/.gitkeep
+!data/README.md
+!data/emotions_171.txt
+
+# Hugging Face / torch caches
+.cache/
+hf_cache/
+huggingface/
+*.safetensors
+*.parquet
+*.arrow
+*.bin
+*.pt
+*.pth
+*.npy
+*.npz
+
+# --- Run outputs (activations, directions, eval artefacts) ---
+outputs/**
+!outputs/.gitkeep
+
+# --- Notebooks / analysis scratch ---
+.ipynb_checkpoints/
+analysis/**/*.ipynb_checkpoints/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- OS / editors ---
+.DS_Store
+.vscode/
+.idea/
