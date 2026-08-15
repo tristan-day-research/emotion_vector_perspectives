@@ -296,12 +296,27 @@ Without it, the 65 GiB Qwen checkpoint lands on the container's root disk and is
 lost on every pod stop. (Verified that a `VAR=value`-prefixed entrypoint survives
 the workflow's `printf %q` arg escaping.)
 
-**R2 credentials come from `scripts/r2.env`** — `run-emotionvectors` forwards that
-file to the pod and sources it, so activation mirroring needs no RunPod-UI env-var
-step. That file exports `R2_ENDPOINT`; `core/r2.py` accepts `R2_ENDPOINT`,
-`R2_ENDPOINT_URL`, or `R2_ACCOUNT_ID`. Note its bucket default is
-`persona-activations` — either reuse it or set `R2_BUCKET` to something
-project-specific.
+**R2 credentials come from `scripts/r2.env`, but the bucket does not.**
+`run-emotionvectors` forwards that file to the pod and sources it, so mirroring needs
+no RunPod-UI env-var step. It exports `R2_ENDPOINT` (`core/r2.py` accepts
+`R2_ENDPOINT`, `R2_ENDPOINT_URL`, or `R2_ACCOUNT_ID`).
+
+> **Do not change `R2_BUCKET` in `scripts/r2.env`.** That file is shared with
+> `persona_introspection`, which reads `os.environ["R2_BUCKET"]` with no fallback and
+> expects `persona-activations`; editing it there would silently redirect that
+> project's uploads. Because `run_persona.sh` sources `/tmp/r2.env` *before* running
+> `RUN_ENTRYPOINT`, an assignment on the entrypoint wins for this project only:
+>
+> ```bash
+> RUN_ENTRYPOINT="HF_HOME=/workspace/hf_cache R2_BUCKET=emotion-vector-perspectives PYTHONUNBUFFERED=1 python run.py"
+> ```
+>
+> Shared credentials, per-project bucket. Your R2 API token must be scoped to
+> **both** buckets (or be a second token) — one scoped only to `persona-activations`
+> cannot write here.
+
+For local use on your Mac, `source scripts/r2.env` then override just the bucket:
+`R2_BUCKET=emotion-vector-perspectives python run.py r2 ls --prefix story-activations/`.
 
 ### Typical pod session
 
