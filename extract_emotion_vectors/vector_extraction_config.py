@@ -217,8 +217,19 @@ class VectorExtractionConfig:
     """
 
     r2_threshold_gib: float = 5.0
+
+    r2_root: str = "story-activations"
+    """Top-level bucket folder for this experiment family.
+
+    Bucket ``emotion-vector-perspectives`` holds several families; story-based
+    emotion vectors live under ``story-activations/``. Deflection dialogues or
+    experiencer-binding conditions would use their own root.
+    """
+
     r2_prefix: str | None = None
-    """Bucket key prefix. ``None`` -> ``runs/<run_name>/activations``."""
+    """Full bucket key prefix, overriding ``r2_root``/``run_name``.
+    ``None`` -> ``<r2_root>/<run_name>``, e.g.
+    ``story-activations/qwen2.5-32b_10emo_all-layers``."""
 
     delete_local_after_sync: bool = False
     """Delete each local ``.safetensors`` chunk once uploaded. Index parquets stay,
@@ -312,7 +323,14 @@ class VectorExtractionConfig:
         return problems
 
     def resolved_r2_prefix(self) -> str:
-        return self.r2_prefix or f"runs/{self.run_name}/activations"
+        """Bucket key prefix for this run's activations.
+
+        Keyed by ``run_name`` so runs never overwrite each other inside the shared
+        ``story-activations/`` folder. Later experiment families (deflection
+        dialogues, experiencer-binding conditions) get their own top-level folder by
+        setting ``r2_prefix``.
+        """
+        return self.r2_prefix or f"{self.r2_root}/{self.run_name}"
 
     @property
     def output_dir(self) -> Path:

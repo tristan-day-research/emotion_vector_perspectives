@@ -337,11 +337,17 @@ credentials exist *and* the estimated size passes `r2_threshold_gib` (5 GiB) —
 tells you plainly which branch it took. `--dry-run` prints the exact estimate before
 you commit any GPU time.
 
+Bucket `emotion-vector-perspectives`; story activations land under
+`story-activations/<run_name>/` (set by `config.r2_root` / `config.r2_prefix`).
+
+Credentials live in `../scripts/r2.env` — one file, forwarded to the pod on every
+run, so there is no RunPod-UI env-var step and it survives pod wipes.
+
 ```bash
-cp .env.example .env      # fill in R2_ACCOUNT_ID / keys / bucket
-python -m core.r2 check
-python -m core.r2 push outputs/<run>/activations --prefix runs/<run>/activations
-python -m core.r2 pull  outputs/<run>/activations --prefix runs/<run>/activations
+python run.py r2 check                      # confirm bucket + endpoint
+python run.py r2 ls --prefix story-activations/
+python run.py r2 pull outputs/<run>/activations \
+    --prefix story-activations/<run_name>    # bring a finished run back
 ```
 
 Set `delete_local_after_sync=true` when the pod disk cannot hold the whole run; the
