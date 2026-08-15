@@ -390,8 +390,8 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args)
     set_global_seeds(config.seed)
 
-    directions_dir = config.output_dir / args.directions_subdir
-    out_dir = config.output_dir / args.output_subdir
+    directions_dir = config.results_dir / args.directions_subdir
+    out_dir = config.results_dir / args.output_subdir
 
     print("=" * 78)
     print(f"Direction evaluation -- run '{config.run_name}'")

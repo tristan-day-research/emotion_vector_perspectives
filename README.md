@@ -173,8 +173,19 @@ extract_emotion_vectors/
   extract_activations.py        stage 1
   compute_directions.py         stage 2
   evaluate_directions.py        stage 3
-outputs/                  (empty) run outputs
+outputs/                  (empty) run outputs, one dir per run:
+  <run_name>/
+    activations/          large pooled activations (mirrored to R2, never pulled)
+    results/              everything small + pullable by `pull-results`
+      run_config_*.txt    provenance records
+      directions/         directions.safetensors, layer_summary.csv
+      evaluation/         metrics CSVs, summary.json, plots
+run.py                    stage router for the shared scripts/ RunPod workflow
+runpod.emotionvectors.env.example   reference copy of the pod config
 ```
+
+The `activations/` vs `results/` split is what lets `pull-results` fetch the
+artefacts you want to look at while leaving 8 GiB on the pod.
 
 ---
 
@@ -232,6 +243,77 @@ The main knobs, all in `VectorExtractionConfig`:
 perturb the residual stream we are trying to measure. Qwen2.5-32B in bf16 is ~65 GiB
 of weights and fits one 80 GiB A100/H100 unquantised. Never compare directions
 across quantisation settings.
+
+---
+
+## Running on RunPod via the shared `scripts/` workflow
+
+This repo is driven by the generic scripts in `../scripts/` (`set_pod.sh`,
+`sync_up.sh`, `run_persona.sh`, `pull_results.sh`). Those are pure plumbing: they
+sync the repo, run one fixed `RUN_ENTRYPOINT` with your arguments appended, and
+rsync results back.
+
+[`run.py`](run.py) is the entrypoint they call — a router that takes a **stage
+name** first and forwards everything else verbatim, so the `--set field=value`
+convention is unchanged:
+
+```bash
+run-emotionvectors extract_activations --dry-run
+run-emotionvectors extract_activations --limit 256
+run-emotionvectors all --set stories_per_emotion=300     # all three stages
+run-emotionvectors r2 push outputs/<run>/activations --prefix runs/<run>/activations
+```
+
+The job runs in tmux on the pod, so it survives your laptop disconnecting.
+`run-emotionvectors --status` / `--attach` / `--stop` manage it.
+
+One-time setup:
+
+```bash
+cd ../scripts
+run-project emotionvectors        # scaffolds runpod.emotionvectors.env + 4 wrappers
+# copy the values from runpod.emotionvectors.env.example in this repo into it
+# then symlink the wrappers per its printed instructions
+set-pod-emotionvectors ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519
+```
+
+### Three settings that are load-bearing
+
+Copy them from
+[`runpod.emotionvectors.env.example`](runpod.emotionvectors.env.example); each was
+checked against the real rsync filters and shell quoting rather than assumed.
+
+**`RESULTS_SUBDIR="outputs"`** — `pull-results` fetches exactly
+`$RESULTS_SUBDIR/*/results/***` and excludes any `activations/` directory. Our runs
+are `outputs/<run>/results/…` with `activations/` as a sibling, so this pulls all
+33-odd directions/metrics/plots/run-records and leaves the 8 GiB behind. The
+template's default `"experiments"` would silently pull **nothing**.
+
+**`RUN_ENTRYPOINT="HF_HOME=/workspace/hf_cache PYTHONUNBUFFERED=1 python run.py"`** —
+`HF_HOME` must be set here, not in the pod's shell profile: the job is launched
+through `tmux new-session` with a non-login shell that never reads `~/.bashrc`.
+Without it, the 65 GiB Qwen checkpoint lands on the container's root disk and is
+lost on every pod stop. (Verified that a `VAR=value`-prefixed entrypoint survives
+the workflow's `printf %q` arg escaping.)
+
+**R2 credentials come from `scripts/r2.env`** — `run-emotionvectors` forwards that
+file to the pod and sources it, so activation mirroring needs no RunPod-UI env-var
+step. That file exports `R2_ENDPOINT`; `core/r2.py` accepts `R2_ENDPOINT`,
+`R2_ENDPOINT_URL`, or `R2_ACCOUNT_ID`. Note its bucket default is
+`persona-activations` — either reuse it or set `R2_BUCKET` to something
+project-specific.
+
+### Typical pod session
+
+```bash
+run-emotionvectors extract_activations --dry-run    # confirm 8.18 GiB, no model download
+run-emotionvectors extract_activations --limit 256  # real throughput number
+run-emotionvectors all                              # full pipeline, resumable
+pull-results-emotionvectors                         # directions + metrics + plots, no activations
+```
+
+Activations stay on the pod and go to R2. `pull-results-emotionvectors
+outputs/<run>/activations` overrides that if you really want them locally.
 
 ---
 

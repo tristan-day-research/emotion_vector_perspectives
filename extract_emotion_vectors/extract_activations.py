@@ -387,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         "fingerprint": fingerprint,
     }
 
-    record_dir = config.output_dir if not args.dry_run else config.output_dir / "dry_run"
+    record_dir = config.results_dir if not args.dry_run else config.results_dir / "dry_run"
     suffix = "" if args.num_shards == 1 else f"_shard{args.shard_index:03d}"
     txt_path, json_path = provenance.write_run_record(
         record_dir,
@@ -483,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 78)
 
     provenance.write_run_record(
-        config.output_dir,
+        config.results_dir,
         title=f"EXTRACTION RESULT -- {config.run_name}",
         sections={
             "result": stats,

@@ -319,16 +319,34 @@ class VectorExtractionConfig:
         return paths.run_dir(self.run_name)
 
     @property
+    def results_dir(self) -> Path:
+        """Small, pullable artefacts: directions, metrics, plots, run records.
+
+        The shared ``scripts/`` workflow's ``pull-results`` fetches exactly
+        ``<RESULTS_SUBDIR>/*/results/***`` and excludes any ``activations/``
+        directory. Putting everything except activations under a ``results/`` level
+        is what makes ``pull-results-emotionvectors`` work with zero flags -- and
+        with the wrong layout it silently pulls *nothing*, which is worse than an
+        error. Verified against the real rsync filters.
+        """
+        return self.output_dir / "results"
+
+    @property
     def activations_dir(self) -> Path:
+        """Large activation chunks: deliberately a sibling of ``results/``.
+
+        Kept outside ``results/`` so ``pull-results`` never drags 8 GiB over the
+        wire; activations travel via R2 instead.
+        """
         return self.output_dir / "activations"
 
     @property
     def directions_dir(self) -> Path:
-        return self.output_dir / "directions"
+        return self.results_dir / "directions"
 
     @property
     def eval_dir(self) -> Path:
-        return self.output_dir / "evaluation"
+        return self.results_dir / "evaluation"
 
     def to_dict(self) -> dict:
         out = asdict(self)

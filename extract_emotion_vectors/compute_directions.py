@@ -1,7 +1,9 @@
 """Stage 2: build emotion directions from stored activations.
 
 Reads pooled activations from ``outputs/<run>/activations`` and writes directions,
-centroids, global means and neutral PCA artefacts to ``outputs/<run>/directions``.
+centroids, global means and neutral PCA artefacts to
+``outputs/<run>/results/directions`` (under ``results/`` so ``pull-results`` fetches
+them and skips the large activations).
 
 Usage
 -----
@@ -90,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args)
     set_global_seeds(config.seed)
 
-    out_dir = config.output_dir / args.output_subdir
+    out_dir = config.results_dir / args.output_subdir
 
     print("=" * 78)
     print(f"Emotion direction construction -- run '{config.run_name}'")

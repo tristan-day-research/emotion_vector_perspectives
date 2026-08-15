@@ -9,8 +9,19 @@ written, optionally deleting the local copy afterwards.
 
 Credentials come from the environment (see ``.env.example``)::
 
-    R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
-    R2_ENDPOINT_URL   (optional; derived from R2_ACCOUNT_ID otherwise)
+    R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+
+plus an endpoint, from any one of::
+
+    R2_ENDPOINT        <- the name the shared scripts/ workflow's r2.env exports
+    R2_ENDPOINT_URL    <- alias
+    R2_ACCOUNT_ID      <- endpoint derived as https://<id>.r2.cloudflarestorage.com
+
+Accepting ``R2_ENDPOINT`` matters: ``run-emotionvectors`` forwards
+``scripts/r2.env`` to the pod and sources it, and that file exports
+``R2_ENDPOINT``. If we only looked for ``R2_ENDPOINT_URL``, ``r2_sync="auto"``
+would quietly decide R2 was unconfigured and keep 8 GiB of activations on an
+ephemeral pod.
 
 CLI::
 
@@ -27,9 +38,25 @@ from pathlib import Path
 
 REQUIRED_ENV = ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
 
+#: Endpoint variable names we accept, in precedence order. ``R2_ENDPOINT`` is what
+#: the shared ``scripts/`` workflow's ``r2.env`` exports.
+ENDPOINT_ENV = ("R2_ENDPOINT", "R2_ENDPOINT_URL")
+
 
 class R2ConfigError(RuntimeError):
     pass
+
+
+def resolve_endpoint() -> str | None:
+    """The R2 endpoint URL from the environment, or ``None`` if unset."""
+    for name in ENDPOINT_ENV:
+        value = os.environ.get(name)
+        if value:
+            return value.rstrip("/")
+    account = os.environ.get("R2_ACCOUNT_ID")
+    if account:
+        return f"https://{account}.r2.cloudflarestorage.com"
+    return None
 
 
 def r2_available() -> tuple[bool, str]:
@@ -37,8 +64,8 @@ def r2_available() -> tuple[bool, str]:
     missing = [k for k in REQUIRED_ENV if not os.environ.get(k)]
     if missing:
         return False, f"missing environment variables: {', '.join(missing)}"
-    if not os.environ.get("R2_ENDPOINT_URL") and not os.environ.get("R2_ACCOUNT_ID"):
-        return False, "set either R2_ENDPOINT_URL or R2_ACCOUNT_ID"
+    if not resolve_endpoint():
+        return False, f"set one of {', '.join(ENDPOINT_ENV)} or R2_ACCOUNT_ID"
     try:
         import boto3  # noqa: F401
     except ImportError:
@@ -62,9 +89,7 @@ class R2Client:
         import boto3
         from botocore.config import Config
 
-        endpoint = os.environ.get("R2_ENDPOINT_URL") or (
-            f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
-        )
+        endpoint = resolve_endpoint()
         client = boto3.client(
             "s3",
             endpoint_url=endpoint,

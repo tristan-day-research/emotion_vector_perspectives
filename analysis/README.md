@@ -15,7 +15,7 @@ from core import plotting
 
 run = "outputs/qwen2.5-32b_10emo_all-layers"
 
-directions = DirectionSet.load(f"{run}/directions")
+directions = DirectionSet.load(f"{run}/results/directions")
 store = ActivationStore(f"{run}/activations")
 
 directions.emotions          # emotion order for every matrix
