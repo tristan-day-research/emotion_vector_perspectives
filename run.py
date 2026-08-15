@@ -156,8 +156,6 @@ def _ensure_activations_local(shared_args: list[str]) -> None:
     once extraction finishes, but stages 2 and 3 read them from disk. Pulling here
     keeps ``run.py all`` a single command. No-op when the chunks are already local.
     """
-    import argparse
-
     from extract_emotion_vectors.extract_activations import build_parser, load_config
 
     # Reuse the stage parser so --set overrides resolve exactly as the stages saw them.
