@@ -33,6 +33,7 @@ CLI::
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,16 +61,30 @@ def resolve_endpoint() -> str | None:
 
 
 def r2_available() -> tuple[bool, str]:
-    """Whether R2 mirroring can run, plus a reason if not."""
-    missing = [k for k in REQUIRED_ENV if not os.environ.get(k)]
-    if missing:
-        return False, f"missing environment variables: {', '.join(missing)}"
-    if not resolve_endpoint():
-        return False, f"set one of {', '.join(ENDPOINT_ENV)} or R2_ACCOUNT_ID"
+    """Whether R2 mirroring can run, plus a reason if not.
+
+    Checks the dependency before the credentials: a missing package and missing
+    credentials are different problems with different fixes, and reporting
+    "not configured" for an uninstalled library sends people to look at the wrong
+    thing.
+    """
     try:
         import boto3  # noqa: F401
     except ImportError:
-        return False, "boto3 is not installed (pip install boto3)"
+        return False, (
+            f"boto3 is not installed in this interpreter ({sys.executable}).\n"
+            "  Fix: python -m pip install boto3\n"
+            "  (boto3 is in requirements.txt; you are probably in a different "
+            "environment than the one where you installed them.)"
+        )
+    missing = [k for k in REQUIRED_ENV if not os.environ.get(k)]
+    if missing:
+        return False, (
+            f"missing environment variables: {', '.join(missing)}\n"
+            "  Fix: set -a; . path/to/scripts/r2.env; set +a"
+        )
+    if not resolve_endpoint():
+        return False, f"set one of {', '.join(ENDPOINT_ENV)} or R2_ACCOUNT_ID"
     return True, "ok"
 
 
