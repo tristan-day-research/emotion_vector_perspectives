@@ -13,16 +13,16 @@ cd "$SCRIPT_DIR"
 
 R2_ROOT="${R2_ROOT:-story-activations}"
 
-# This project's bucket. Hardcoded as the default rather than inherited from the
-# environment: scripts/r2.env (and any shell that sourced it) sets R2_BUCKET to the
-# OTHER project's bucket, so trusting the ambient value silently looks in the wrong
-# place. Override deliberately with SHARE_BUCKET=... if you ever need to.
-BUCKET="${SHARE_BUCKET:-emotion-vector-perspectives}"
-
-# Credentials from the shared r2.env, unless already exported.
-if [ -z "${R2_ACCESS_KEY_ID:-}" ] && [ -f "$SCRIPT_DIR/../scripts/r2.env" ]; then
-  set -a; . "$SCRIPT_DIR/../scripts/r2.env"; set +a
+# Credentials from this project's r2.env, which core/env_file.py also loads on the
+# Python side. Sourcing it here as well means the shell parts of this script (the
+# `ls` calls below) see the same bucket and endpoint the pipeline does.
+if [ -f "$SCRIPT_DIR/r2.env" ]; then
+  set -a; . "$SCRIPT_DIR/r2.env"; set +a
 fi
+
+# SHARE_BUCKET overrides r2.env deliberately; otherwise trust r2.env, falling back
+# to this project's bucket if the file is missing a value.
+BUCKET="${SHARE_BUCKET:-${R2_BUCKET:-emotion-vector-perspectives}}"
 export R2_BUCKET="$BUCKET"
 
 PY="${PYTHON:-python}"
@@ -71,12 +71,17 @@ STEP 2 -- send them the block below, with <KEY>/<SECRET> filled in.
 git clone <this-repo-url> && cd emotion_vector_perspectives
 pip install -r requirements.txt
 
-export R2_ENDPOINT="$ENDPOINT"
-export R2_BUCKET="$R2_BUCKET"
-export R2_ACCESS_KEY_ID="<KEY>"
-export R2_SECRET_ACCESS_KEY="<SECRET>"
+# Credentials live in one git-ignored file, loaded automatically — no exports,
+# no 'source' step.
+cp r2.env.example r2.env
 
-# Confirm access
+# ...then set these four values in r2.env:
+#   R2_ENDPOINT="$ENDPOINT"
+#   R2_BUCKET="$R2_BUCKET"
+#   R2_ACCESS_KEY_ID="<KEY>"
+#   R2_SECRET_ACCESS_KEY="<SECRET>"
+
+# Confirm access (also prints which file the credentials came from)
 python run.py r2 check
 
 # Download the activations for this run (~$(echo "$SUMMARY" | grep -o '[0-9.]* GiB' || echo '8 GiB'))

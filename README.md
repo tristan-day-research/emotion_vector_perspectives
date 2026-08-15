@@ -279,11 +279,9 @@ cd ~/dev/code/emotion_vector_perspectives   # cd here first — every command
 set-pod ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519
 ```
 
-If your entrypoint needs a secret (e.g. `HF_TOKEN` for a gated model), put it
-in `../scripts/r2.env` instead of anywhere in this repo — that file is
-already forwarded to the pod and sourced before every run (see the R2
-section below), so an `export HF_TOKEN=...` line there reaches this
-project's job with no extra wiring.
+Secrets go in this repo's own git-ignored `r2.env` (see
+[Credentials: `r2.env`](#credentials-r2env)), including `HF_TOKEN` for a gated
+model. Run `./push_r2_env.sh` once per pod to copy it over.
 
 ### Settings in `.runpod.env` that are load-bearing
 
@@ -308,28 +306,20 @@ Without it, the 65 GiB Qwen checkpoint lands on the container's root disk and is
 lost on every pod stop. (Verified that a `VAR=value`-prefixed entrypoint survives
 the workflow's `printf %q` arg escaping.)
 
-**R2 credentials come from `../scripts/r2.env`, but the bucket does not.**
-`run-experiment` forwards that file to the pod and sources it, so mirroring needs
-no RunPod-UI env-var step. It exports `R2_ENDPOINT` (`core/r2.py` accepts
-`R2_ENDPOINT`, `R2_ENDPOINT_URL`, or `R2_ACCOUNT_ID`).
+**R2 credentials come from this repo's `r2.env`.** See
+[Credentials: `r2.env`](#credentials-r2env) below. `core/r2.py` accepts
+`R2_ENDPOINT`, `R2_ENDPOINT_URL`, or `R2_ACCOUNT_ID` for the endpoint.
 
-> **Do not change `R2_BUCKET` in `scripts/r2.env`.** That file is shared with
-> `persona_introspection`, which reads `os.environ["R2_BUCKET"]` with no fallback and
-> expects `persona-activations`; editing it there would silently redirect that
-> project's uploads. Because `run_experiment.sh` sources `/tmp/r2.env` *before* running
-> `RUN_ENTRYPOINT`, an assignment on the entrypoint wins for this project only —
-> add it to this repo's `.runpod.env`:
->
-> ```bash
-> RUN_ENTRYPOINT="HF_HOME=/workspace/hf_cache R2_BUCKET=emotion-vector-perspectives PYTHONUNBUFFERED=1 python run.py"
-> ```
->
-> Shared credentials, per-project bucket. Your R2 API token must be scoped to
-> **both** buckets (or be a second token) — one scoped only to `persona-activations`
-> cannot write here.
+On the pod, run `./push_r2_env.sh` once — `sync-up` honours `.gitignore`, so a
+normal sync deliberately will not carry credentials over the wire.
 
-For local use on your Mac, `source ../scripts/r2.env` then override just the bucket:
-`R2_BUCKET=emotion-vector-perspectives python run.py r2 ls --prefix story-activations/`.
+> **Why the repo's `r2.env` overrides the environment.** `run-experiment` also
+> forwards the *shared* `../scripts/r2.env` to `/tmp/r2.env` and sources it before
+> the entrypoint, and that file sets `R2_BUCKET=persona-activations` for
+> `persona_introspection`, which reads `os.environ["R2_BUCKET"]` with no fallback.
+> If the inherited value won, this project would upload 8 GiB into the wrong
+> bucket. So `core/env_file.py` lets the repo-local file win, and prints the
+> override rather than doing it silently. No `RUN_ENTRYPOINT` bucket hack needed.
 
 ### Typical pod session
 
@@ -369,8 +359,28 @@ you commit any GPU time.
 Bucket `emotion-vector-perspectives`; story activations land under
 `story-activations/<run_name>/` (set by `config.r2_root` / `config.r2_prefix`).
 
-Credentials live in `../scripts/r2.env` — one file, forwarded to the pod on every
-run, so there is no RunPod-UI env-var step and it survives pod wipes.
+### Credentials: `r2.env`
+
+One git-ignored file in the repo root carries everything — R2 keys, bucket,
+endpoint, and `HF_TOKEN`:
+
+```bash
+cp r2.env.example r2.env     # then fill in the blanks
+python run.py r2 check       # confirms bucket + endpoint, and names the file used
+```
+
+Every entry point loads it automatically ([core/env_file.py](core/env_file.py)) —
+no `source`, no `export`, and nothing to keep in sync between two files. It stays
+valid shell, so `set -a; . r2.env; set +a` still works if you want the variables in
+your own shell.
+
+Search order, first existing file wins: `$R2_ENV_FILE`, `r2.env`, `.env`,
+`/tmp/r2.env` (where the shared workflow lands creds on a pod),
+`../scripts/r2.env`. Values from that file **override** the inherited environment
+(see the warning above for why); `R2_ENV_FILE=none` opts out entirely.
+
+To onboard a teammate, run `./share_with_teammate.sh` — it prints per-person,
+read-only setup instructions. Never commit `r2.env` or paste it into Slack.
 
 ```bash
 python run.py r2 check                      # confirm bucket + endpoint

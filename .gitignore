@@ -35,6 +35,10 @@ env/
 .python-version
 
 # --- Secrets ---
+# r2.env is the real credentials file (R2 keys + HF_TOKEN); r2.env.example is the
+# committed template. Note the negation must come after the ignore rule.
+r2.env
+!r2.env.example
 .env
 .env.*
 !.env.example

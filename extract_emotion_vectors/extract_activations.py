@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -35,7 +36,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from core import activation_store, dataset, model_utils, paths, provenance
+from core import activation_store, dataset, env_file, model_utils, paths, provenance
 from core.activation_store import (
     ActivationWriter,
     estimate_storage_bytes,
@@ -198,7 +199,7 @@ def decide_r2(config: VectorExtractionConfig, estimated_bytes: int) -> tuple[boo
         if not available:
             raise SystemExit(
                 f"r2_sync=True but R2 is not usable: {reason}\n"
-                "Fill in .env (see .env.example) or set r2_sync=False."
+                "Fill in r2.env (see r2.env.example) or set r2_sync=False."
             )
         return True, "enabled in config"
     # "auto"
@@ -222,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config(args)
     set_global_seeds(config.seed)
+    # r2.env holds HF_TOKEN as well as the R2 credentials, so load it before the
+    # tokenizer/model are fetched -- not just when R2 is first touched. Also makes
+    # this stage work standalone (`python -m ...`), not only via run.py.
+    env_file.load_env_file()
 
     cache_dir = paths.hf_cache_dir()
     print("=" * 78)
@@ -291,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     use_r2, r2_reason = decide_r2(config, total_bytes)
     print(f"R2 mirror  : {use_r2} ({r2_reason})")
     if use_r2:
-        print(f"  prefix   : s3://{__import__('os').environ.get('R2_BUCKET')}/{config.resolved_r2_prefix()}")
+        print(f"  prefix   : s3://{os.environ.get('R2_BUCKET')}/{config.resolved_r2_prefix()}")
         print(f"  delete local chunks after upload: {config.delete_local_after_sync}")
     print()
 
@@ -364,6 +369,10 @@ def main(argv: list[str] | None = None) -> int:
             "r2_sync": use_r2,
             "r2_reason": r2_reason,
             "r2_prefix": config.resolved_r2_prefix() if use_r2 else None,
+            "r2_bucket": os.environ.get("R2_BUCKET") if use_r2 else None,
+            # Which credentials file was in play: the bucket is not a config field,
+            # so without this a manifest cannot say where the activations went.
+            "env_file": str(record.path) if (record := env_file.loaded()) and record.path else None,
             "bytes_per_example": per_example,
             "estimated_bytes_shard": shard_bytes,
             "estimated_bytes_total": total_bytes,

@@ -7,21 +7,23 @@ activations (see ``--dry-run`` for the exact figure). That is too much to keep
 shuttling to a laptop, so extraction can mirror each chunk to R2 as soon as it is
 written, optionally deleting the local copy afterwards.
 
-Credentials come from the environment (see ``.env.example``)::
+Credentials come from **``r2.env`` in the project root** -- git-ignored, templated
+by ``r2.env.example``, and loaded automatically by :mod:`core.env_file`, so no
+``source`` step is needed and a teammate who clones this repo has one file to
+fill in. Required::
 
     R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
 
 plus an endpoint, from any one of::
 
-    R2_ENDPOINT        <- the name the shared scripts/ workflow's r2.env exports
+    R2_ENDPOINT        <- what r2.env exports
     R2_ENDPOINT_URL    <- alias
     R2_ACCOUNT_ID      <- endpoint derived as https://<id>.r2.cloudflarestorage.com
 
-Accepting ``R2_ENDPOINT`` matters: ``run-emotionvectors`` forwards
-``scripts/r2.env`` to the pod and sources it, and that file exports
-``R2_ENDPOINT``. If we only looked for ``R2_ENDPOINT_URL``, ``r2_sync="auto"``
-would quietly decide R2 was unconfigured and keep 8 GiB of activations on an
-ephemeral pod.
+Accepting ``R2_ENDPOINT`` matters: the shared ``scripts/`` workflow forwards its
+own ``r2.env`` to the pod and sources it, and that file exports ``R2_ENDPOINT``.
+If we only looked for ``R2_ENDPOINT_URL``, ``r2_sync="auto"`` would quietly decide
+R2 was unconfigured and keep 8 GiB of activations on an ephemeral pod.
 
 CLI::
 
@@ -37,6 +39,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.env_file import load_env_file, loaded as loaded_env_file
+
 REQUIRED_ENV = ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
 
 #: Endpoint variable names we accept, in precedence order. ``R2_ENDPOINT`` is what
@@ -50,6 +54,7 @@ class R2ConfigError(RuntimeError):
 
 def resolve_endpoint() -> str | None:
     """The R2 endpoint URL from the environment, or ``None`` if unset."""
+    load_env_file()
     for name in ENDPOINT_ENV:
         value = os.environ.get(name)
         if value:
@@ -68,6 +73,7 @@ def r2_available() -> tuple[bool, str]:
     "not configured" for an uninstalled library sends people to look at the wrong
     thing.
     """
+    load_env_file()
     try:
         import boto3  # noqa: F401
     except ImportError:
@@ -79,9 +85,12 @@ def r2_available() -> tuple[bool, str]:
         )
     missing = [k for k in REQUIRED_ENV if not os.environ.get(k)]
     if missing:
+        record = loaded_env_file()
         return False, (
             f"missing environment variables: {', '.join(missing)}\n"
-            "  Fix: set -a; . path/to/scripts/r2.env; set +a"
+            f"  credentials file: {record.reason if record else 'not searched'}\n"
+            "  Fix: cp r2.env.example r2.env  and fill it in (see README, "
+            '"Credentials: r2.env")'
         )
     if not resolve_endpoint():
         return False, f"set one of {', '.join(ENDPOINT_ENV)} or R2_ACCOUNT_ID"
@@ -329,7 +338,11 @@ def _main() -> None:
 
     if args.action == "check":
         ok, reason = r2_available()
+        record = loaded_env_file()
         print(f"R2 configured: {ok} ({reason})")
+        # Which file the credentials came from is the first thing to check when the
+        # bucket or endpoint is not what you expect.
+        print(f"  creds from: {record.reason if record else 'environment only'}")
         if ok:
             client = R2Client.from_env()
             print(f"  bucket   : {client.bucket}")

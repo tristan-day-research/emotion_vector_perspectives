@@ -131,6 +131,13 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE)
         return 0 if argv else 2
 
+    # Before any stage runs: r2.env carries HF_TOKEN as well as the R2 credentials,
+    # so loading it here (not just inside core.r2) means a gated checkpoint
+    # downloads without a separate `export` step.
+    from core.env_file import load_env_file
+
+    load_env_file()
+
     stage = _resolve(argv[0])
     args = argv[1:]
 
