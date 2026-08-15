@@ -133,6 +133,46 @@ class R2Client:
         local.parent.mkdir(parents=True, exist_ok=True)
         self.client.download_file(self.bucket, key, str(local))
 
+    # -- sharing ----------------------------------------------------------- #
+
+    def presign(self, key: str, expires_seconds: int = 604800) -> str:
+        """A time-limited HTTPS URL granting read access to one object.
+
+        Lets a collaborator download without a Cloudflare account or any
+        credentials. The URL embeds a signature derived from *your* access key, so
+        treat it as a secret: anyone holding it has read access to that object
+        until it expires.
+
+        R2 caps presigned-URL lifetime at 7 days (604800s), which is also the
+        default here.
+        """
+        if not 1 <= expires_seconds <= 604800:
+            raise ValueError(
+                f"expires_seconds must be 1..604800 (R2's 7-day maximum), got {expires_seconds}"
+            )
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": key},
+            ExpiresIn=expires_seconds,
+        )
+
+    def presign_prefix(
+        self,
+        prefix: str,
+        expires_seconds: int = 604800,
+    ) -> list[tuple[str, int, str]]:
+        """``[(key, size, url), ...]`` for every object under ``prefix``.
+
+        A whole run is hundreds of chunk files, so this is mainly useful for
+        sharing the small stuff -- a ``results/`` tree, one layer, a manifest. For
+        a full 8 GiB activation set, hand out a read-only API token instead
+        (Option 1 in the README) rather than hundreds of links.
+        """
+        return [
+            (key, size, self.presign(key, expires_seconds))
+            for key, size in sorted(self.list_objects(prefix).items())
+        ]
+
     def sync_up(
         self,
         local_dir: str | Path,
@@ -225,10 +265,23 @@ def _main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Mirror activations to/from Cloudflare R2")
-    parser.add_argument("action", choices=["push", "pull", "ls", "check"])
+    parser.add_argument("action", choices=["push", "pull", "ls", "check", "share"])
     parser.add_argument("local_dir", nargs="?", help="local directory (push/pull)")
     parser.add_argument("--prefix", required=False, default="", help="key prefix in the bucket")
     parser.add_argument("--delete-local", action="store_true", help="remove local files after upload")
+    parser.add_argument(
+        "--expires-hours",
+        type=float,
+        default=168.0,
+        help="presigned-URL lifetime for 'share' (max 168 = R2's 7-day cap)",
+    )
+    parser.add_argument(
+        "--max-urls",
+        type=int,
+        default=50,
+        help="refuse to mint more than this many URLs at once (guards against "
+             "accidentally presigning a whole 8 GiB run)",
+    )
     args = parser.parse_args()
 
     if args.action == "check":
@@ -247,6 +300,36 @@ def _main() -> None:
         for key, size in sorted(objects.items()):
             print(f"{size:>14,}  {key}")
         print(f"{len(objects)} objects, {total / 1024**3:.2f} GiB")
+        return
+
+    if args.action == "share":
+        if not args.prefix:
+            parser.error("share requires --prefix")
+        expires = int(args.expires_hours * 3600)
+        objects = client.list_objects(args.prefix)
+        if not objects:
+            print(f"no objects under {args.prefix!r} — nothing to share")
+            return
+        if len(objects) > args.max_urls:
+            print(
+                f"{len(objects)} objects under {args.prefix!r} exceeds --max-urls="
+                f"{args.max_urls}.\n"
+                "Presigned URLs are per-object, so this is the wrong tool for a whole "
+                "activation set.\nHand out a read-only R2 API token instead (see README "
+                '"Sharing activations"), or\nnarrow --prefix, or raise --max-urls '
+                "deliberately."
+            )
+            raise SystemExit(1)
+
+        print(
+            f"# {len(objects)} presigned URL(s), valid {args.expires_hours:g}h "
+            f"({expires}s) from now.\n"
+            "# Treat as secrets: each grants read access to that object until it expires.\n"
+        )
+        for key, size, url in client.presign_prefix(args.prefix, expires):
+            print(f"# {key}  ({size / 1024**2:.1f} MiB)")
+            print(url)
+            print()
         return
 
     if not args.local_dir:

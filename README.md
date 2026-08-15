@@ -181,7 +181,7 @@ outputs/                  (empty) run outputs, one dir per run:
       directions/         directions.safetensors, layer_summary.csv
       evaluation/         metrics CSVs, summary.json, plots
 run.py                    stage router for the shared scripts/ RunPod workflow
-runpod.emotionvectors.env.example   reference copy of the pod config
+.runpod.env               pod config overrides for the shared scripts/ workflow
 ```
 
 The `activations/` vs `results/` split is what lets `pull-results` fetch the
@@ -248,46 +248,58 @@ across quantisation settings.
 
 ## Running on RunPod via the shared `scripts/` workflow
 
-This repo is driven by the generic scripts in `../scripts/` (`set_pod.sh`,
-`sync_up.sh`, `run_persona.sh`, `pull_results.sh`). Those are pure plumbing: they
-sync the repo, run one fixed `RUN_ENTRYPOINT` with your arguments appended, and
-rsync results back.
+This repo is driven by the generic, **project-agnostic** scripts in
+`../scripts/` (`set_pod.sh`, `sync_up.sh`, `run_experiment.sh`,
+`pull_results.sh`, exposed as `set-pod` / `sync-up` / `run-experiment` /
+`pull-results`). They aren't specific to any one project — they sync
+whatever directory you `cd` into, and run one fixed `RUN_ENTRYPOINT` with
+your arguments appended. There are no per-project wrapper commands; the
+same four commands work here and in every other project.
 
 [`run.py`](run.py) is the entrypoint they call — a router that takes a **stage
 name** first and forwards everything else verbatim, so the `--set field=value`
 convention is unchanged:
 
 ```bash
-run-emotionvectors extract_activations --dry-run
-run-emotionvectors extract_activations --limit 256
-run-emotionvectors all --set stories_per_emotion=300     # all three stages
-run-emotionvectors r2 push outputs/<run>/activations --prefix runs/<run>/activations
+run-experiment extract_activations --dry-run
+run-experiment extract_activations --limit 256
+run-experiment all --set stories_per_emotion=300     # all three stages
+run-experiment r2 push outputs/<run>/activations --prefix runs/<run>/activations
 ```
 
 The job runs in tmux on the pod, so it survives your laptop disconnecting.
-`run-emotionvectors --status` / `--attach` / `--stop` manage it.
+`run-experiment --status` / `--attach` / `--stop` manage it.
 
-One-time setup:
+One-time setup — this repo's [`.runpod.env`](.runpod.env) already carries the
+settings below, checked in and shared by anyone who clones this repo:
 
 ```bash
-cd ../scripts
-run-project emotionvectors        # scaffolds runpod.emotionvectors.env + 4 wrappers
-# copy the values from runpod.emotionvectors.env.example in this repo into it
-# then symlink the wrappers per its printed instructions
-set-pod-emotionvectors ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519
+cd ~/dev/code/emotion_vector_perspectives   # cd here first — every command
+                                             # below acts on your cwd
+set-pod ssh root@<ip> -p <port> -i ~/.ssh/id_ed25519
 ```
 
-### Three settings that are load-bearing
+If your entrypoint needs a secret (e.g. `HF_TOKEN` for a gated model), put it
+in `../scripts/r2.env` instead of anywhere in this repo — that file is
+already forwarded to the pod and sourced before every run (see the R2
+section below), so an `export HF_TOKEN=...` line there reaches this
+project's job with no extra wiring.
 
-Copy them from
-[`runpod.emotionvectors.env.example`](runpod.emotionvectors.env.example); each was
-checked against the real rsync filters and shell quoting rather than assumed.
+### Settings in `.runpod.env` that are load-bearing
+
+```bash
+REQUIREMENTS_FILE="requirements.txt"
+INSTALL_CMD="pip install -r $REQUIREMENTS_FILE"
+RUN_ENTRYPOINT="HF_HOME=/workspace/hf_cache PYTHONUNBUFFERED=1 python run.py"
+RESULTS_SUBDIR="outputs"
+```
 
 **`RESULTS_SUBDIR="outputs"`** — `pull-results` fetches exactly
 `$RESULTS_SUBDIR/*/results/***` and excludes any `activations/` directory. Our runs
 are `outputs/<run>/results/…` with `activations/` as a sibling, so this pulls all
 33-odd directions/metrics/plots/run-records and leaves the 8 GiB behind. The
-template's default `"experiments"` would silently pull **nothing**.
+shared default `"experiments"` (this project doesn't have that folder) would
+silently pull **nothing**.
 
 **`RUN_ENTRYPOINT="HF_HOME=/workspace/hf_cache PYTHONUNBUFFERED=1 python run.py"`** —
 `HF_HOME` must be set here, not in the pod's shell profile: the job is launched
@@ -296,16 +308,17 @@ Without it, the 65 GiB Qwen checkpoint lands on the container's root disk and is
 lost on every pod stop. (Verified that a `VAR=value`-prefixed entrypoint survives
 the workflow's `printf %q` arg escaping.)
 
-**R2 credentials come from `scripts/r2.env`, but the bucket does not.**
-`run-emotionvectors` forwards that file to the pod and sources it, so mirroring needs
+**R2 credentials come from `../scripts/r2.env`, but the bucket does not.**
+`run-experiment` forwards that file to the pod and sources it, so mirroring needs
 no RunPod-UI env-var step. It exports `R2_ENDPOINT` (`core/r2.py` accepts
 `R2_ENDPOINT`, `R2_ENDPOINT_URL`, or `R2_ACCOUNT_ID`).
 
 > **Do not change `R2_BUCKET` in `scripts/r2.env`.** That file is shared with
 > `persona_introspection`, which reads `os.environ["R2_BUCKET"]` with no fallback and
 > expects `persona-activations`; editing it there would silently redirect that
-> project's uploads. Because `run_persona.sh` sources `/tmp/r2.env` *before* running
-> `RUN_ENTRYPOINT`, an assignment on the entrypoint wins for this project only:
+> project's uploads. Because `run_experiment.sh` sources `/tmp/r2.env` *before* running
+> `RUN_ENTRYPOINT`, an assignment on the entrypoint wins for this project only —
+> add it to this repo's `.runpod.env`:
 >
 > ```bash
 > RUN_ENTRYPOINT="HF_HOME=/workspace/hf_cache R2_BUCKET=emotion-vector-perspectives PYTHONUNBUFFERED=1 python run.py"
@@ -315,19 +328,20 @@ no RunPod-UI env-var step. It exports `R2_ENDPOINT` (`core/r2.py` accepts
 > **both** buckets (or be a second token) — one scoped only to `persona-activations`
 > cannot write here.
 
-For local use on your Mac, `source scripts/r2.env` then override just the bucket:
+For local use on your Mac, `source ../scripts/r2.env` then override just the bucket:
 `R2_BUCKET=emotion-vector-perspectives python run.py r2 ls --prefix story-activations/`.
 
 ### Typical pod session
 
 ```bash
-run-emotionvectors extract_activations --dry-run    # confirm 8.18 GiB, no model download
-run-emotionvectors extract_activations --limit 256  # real throughput number
-run-emotionvectors all                              # full pipeline, resumable
-pull-results-emotionvectors                         # directions + metrics + plots, no activations
+cd ~/dev/code/emotion_vector_perspectives
+run-experiment extract_activations --dry-run    # confirm 8.18 GiB, no model download
+run-experiment extract_activations --limit 256  # real throughput number
+run-experiment all                              # full pipeline, resumable
+pull-results                                    # directions + metrics + plots, no activations
 ```
 
-Activations stay on the pod and go to R2. `pull-results-emotionvectors
+Activations stay on the pod and go to R2. `pull-results
 outputs/<run>/activations` overrides that if you really want them locally.
 
 ---
@@ -371,6 +385,59 @@ directions.
 
 Set `HF_HOME=/workspace/hf_cache` on RunPod so a 65 GiB checkpoint lands on the
 volume rather than the container's root disk.
+
+### Sharing activations with collaborators
+
+Pick by what the recipient needs. Bucket is private; nothing below makes it public.
+
+**1. Read-only API token — the default for anyone running code.**
+Cloudflare → R2 → *Manage R2 API Tokens* → *Create API Token*, permissions
+**Object Read only**, scoped to **only** `emotion-vector-perspectives`. Issue **one
+token per person** so you can revoke individually, and send it through a password
+manager or Signal — never Slack, email, or a commit.
+
+They then need no write access and cannot damage the run:
+
+```bash
+export R2_ENDPOINT="https://<account_id>.r2.cloudflarestorage.com"
+export R2_ACCESS_KEY_ID="<their-read-only-key>"
+export R2_SECRET_ACCESS_KEY="<their-read-only-secret>"
+export R2_BUCKET="emotion-vector-perspectives"
+
+python run.py r2 ls --prefix story-activations/
+python run.py r2 pull outputs/<run_name>/activations \
+    --prefix story-activations/<run_name>
+```
+
+Then `compute_directions` / `evaluate_directions` run locally against the pulled
+activations, or `ActivationStore` opens them in a notebook.
+
+**2. Presigned URLs — for a handful of files, no account needed.**
+Time-limited HTTPS links, max 7 days (R2's cap):
+
+```bash
+python run.py r2 share --prefix story-activations/<run_name>/results --expires-hours 72
+```
+
+Each URL is a **secret** — it embeds a signature from your key and grants read
+access until it expires. Per-object, so it refuses to mint more than `--max-urls`
+(default 50) and points you at option 1 for a whole 8 GiB run.
+
+**3. Share the directions, not the activations — usually the right answer.**
+`results/directions/directions.safetensors` is a few MB versus 8 GiB, and it is what
+downstream analysis actually consumes. Attach it to a release, commit it to a
+separate data repo, or presign it. Collaborators only need raw activations to refit
+directions or train probes.
+
+**4. A Cloudflare account invite** (R2 → *Manage* → member with R2 read) if a
+teammate wants dashboard access. Heaviest option; only for someone co-administering
+storage.
+
+> **Reproducibility note.** Activations are only interpretable alongside their
+> `manifest.json` (model sha, layers, pooling offset, dtype) and the run records
+> under `results/`. `r2 pull` of a full run prefix brings the manifest along; if you
+> hand over a subset, include the manifest or the recipient cannot verify what they
+> have. `ActivationStore` refuses to open a directory without it.
 
 ### Multi-GPU
 

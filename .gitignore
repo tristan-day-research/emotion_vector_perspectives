@@ -38,6 +38,7 @@ env/
 .env
 .env.*
 !.env.example
+.runpod.local.env
 
 # --- OS / editors ---
 .DS_Store
@@ -45,4 +46,3 @@ env/
 .idea/
 
 RUNPOD_WORKFLOW.md
-runpod.emotionvectors.env.example
