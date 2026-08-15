@@ -231,10 +231,27 @@ class VectorExtractionConfig:
     ``None`` -> ``<r2_root>/<run_name>``, e.g.
     ``story-activations/qwen2.5-32b_10emo_all-layers``."""
 
-    delete_local_after_sync: bool = False
-    """Delete each local ``.safetensors`` chunk once uploaded. Index parquets stay,
-    so resume still works. Turn on when the pod disk cannot hold the whole run;
-    remember ``python -m core.r2 pull`` before fitting directions."""
+    delete_local_after_sync: bool = True
+    """Keep activations in R2 only: delete each local ``.safetensors`` chunk once its
+    upload is **verified** (object present, size matches).
+
+    Default ``True``, so a run leaves ~8 GiB in R2 and only megabytes on disk. The
+    small index parquets and ``manifest.json`` stay local, which is what lets a
+    resumed run know which examples are done without touching R2.
+
+    Consequence to know about: stages 2 and 3 read activations from disk, so on a
+    fresh machine (or a wiped pod) pull them first::
+
+        python run.py r2 pull outputs/<run>/activations --prefix story-activations/<run>
+
+    Within a single pod session ``run.py all`` handles this for you -- it re-pulls
+    between extraction and direction fitting.
+
+    Set ``False`` to keep local copies as well; that is the right choice if the disk
+    can hold the run and you want to refit repeatedly without downloading. Ignored
+    entirely when R2 is not in use -- nothing is ever deleted without a verified
+    remote copy.
+    """
 
     # --------------------------------------------------------- evaluation --- #
     eval_splits: tuple[str, ...] = ("validation", "test")

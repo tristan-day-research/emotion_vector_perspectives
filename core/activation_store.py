@@ -83,6 +83,10 @@ class IncompatibleRunError(RuntimeError):
     """Raised when an existing run's settings differ from the current ones."""
 
 
+class MissingChunkError(FileNotFoundError):
+    """An activation chunk is indexed but absent locally (it lives in R2 only)."""
+
+
 def _diff_fingerprints(existing: dict, current: dict) -> list[str]:
     diffs = []
     for key in sorted(set(existing) | set(current)):
@@ -391,6 +395,20 @@ class ActivationStore:
         work = rows.assign(_pos=np.arange(len(rows)))
 
         for chunk_path, group in work.groupby("chunk_path", sort=True):
+            if not Path(chunk_path).exists():
+                # Normal state after a run with delete_local_after_sync=True: the
+                # index parquet is local but the tensors live only in R2. Say how to
+                # fix it rather than leaving a bare FileNotFoundError.
+                raise MissingChunkError(
+                    f"activation chunk is not on this machine:\n  {chunk_path}\n\n"
+                    "The index is present, so this run was extracted with "
+                    "delete_local_after_sync=True and the tensors are in R2 only.\n"
+                    "Download them first:\n\n"
+                    f"  python run.py r2 pull {self.activations_dir} "
+                    f"--prefix <r2_root>/<run_name>\n\n"
+                    "(the run's manifest.json records the run name; see the README "
+                    'section "Sharing activations" for credentials)'
+                )
             with safe_open(str(chunk_path), framework="pt") as fh:
                 if key not in fh.keys():
                     raise KeyError(f"{key} missing from {chunk_path}")

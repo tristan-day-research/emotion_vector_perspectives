@@ -379,9 +379,36 @@ python run.py r2 pull outputs/<run>/activations \
     --prefix story-activations/<run_name>    # bring a finished run back
 ```
 
-Set `delete_local_after_sync=true` when the pod disk cannot hold the whole run; the
-small index parquets stay behind so resume still works, and you `pull` before fitting
-directions.
+### Activations live in R2, not on disk (default)
+
+`delete_local_after_sync=true` is the **default**: each `.safetensors` chunk is
+deleted locally as soon as its upload is *verified* (object present, size matches).
+A finished run leaves ~8 GiB in R2 and only megabytes on the pod.
+
+What stays local, deliberately:
+
+* the per-chunk **index parquets** — tiny, and what lets a resumed run know which
+  examples are done without querying R2
+* **`manifest.json`** — without it the activations are uninterpretable
+
+Nothing is ever deleted without a verified remote copy. If R2 is unconfigured or an
+upload fails, local files are kept and the failure is reported; the final sweep and
+any later `r2 push` retry it. A truncated upload is caught by the size check and the
+local copy survives — covered by
+[`tests/test_r2_only_flow.py`](tests/test_r2_only_flow.py).
+
+Because stages 2 and 3 read activations from disk, a fresh machine needs a pull:
+
+```bash
+python run.py r2 pull outputs/<run>/activations --prefix story-activations/<run>
+```
+
+`run.py all` does this for you between extraction and direction fitting. If you run
+a stage directly and the chunks are absent, you get a `MissingChunkError` that prints
+the exact `r2 pull` command rather than a bare `FileNotFoundError`.
+
+Set `delete_local_after_sync=false` to keep local copies too — the right choice when
+the disk can hold the run and you want to refit repeatedly without downloading.
 
 Set `HF_HOME=/workspace/hf_cache` on RunPod so a 65 GiB checkpoint lands on the
 volume rather than the container's root disk.

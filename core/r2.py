@@ -128,6 +128,16 @@ class R2Client:
     def upload_file(self, local: str | Path, key: str) -> None:
         self.client.upload_file(str(local), self.bucket, key)
 
+    def head_size(self, key: str) -> int | None:
+        """Byte size of one object, or ``None`` if it does not exist.
+
+        Used to verify an upload landed before deleting the local copy.
+        """
+        try:
+            return int(self.client.head_object(Bucket=self.bucket, Key=key)["ContentLength"])
+        except Exception:
+            return None
+
     def download_file(self, key: str, local: str | Path) -> None:
         local = Path(local)
         local.parent.mkdir(parents=True, exist_ok=True)
@@ -242,21 +252,39 @@ def make_chunk_uploader(
     activations_dir = Path(activations_dir)
 
     def upload(paths: list[Path]) -> None:
+        uploaded: list[Path] = []
         for path in paths:
             key = f"{prefix.rstrip('/')}/{Path(path).relative_to(activations_dir).as_posix()}"
+            local_size = Path(path).stat().st_size
             try:
                 client.upload_file(path, key)
+                if delete_local:
+                    # Deleting the only local copy: confirm the object is actually
+                    # there at the right size before doing it. An interrupted or
+                    # truncated PUT that we did not verify would otherwise lose the
+                    # chunk outright -- and a chunk costs real GPU time to recreate.
+                    remote_size = client.head_size(key)
+                    if remote_size != local_size:
+                        raise IOError(
+                            f"size mismatch after upload: local {local_size} != "
+                            f"remote {remote_size if remote_size is not None else 'missing'}"
+                        )
+                uploaded.append(Path(path))
                 if verbose:
                     print(f"  [r2] {key}")
             except Exception as exc:
+                # Keep every local file for this chunk: the final sweep or a later
+                # `r2 push` retries it. Never delete on a partial failure.
                 print(f"  [r2] WARNING failed to upload {key}: {exc}")
+                print("  [r2] keeping local copies for this chunk; will retry in the final sweep")
                 return
+
         if delete_local:
-            # Only delete the tensor file; the index parquet is small and is what
-            # lets a resumed run know this example is done without touching R2.
-            for path in paths:
-                if Path(path).suffix == ".safetensors":
-                    Path(path).unlink(missing_ok=True)
+            # Only delete the tensor file. The index parquet is tiny and is what
+            # lets a resumed run know these examples are done without touching R2.
+            for path in uploaded:
+                if path.suffix == ".safetensors":
+                    path.unlink(missing_ok=True)
 
     return upload
 

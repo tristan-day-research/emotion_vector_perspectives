@@ -144,7 +144,55 @@ def main(argv: list[str] | None = None) -> int:
         if code != 0:
             print(f"\nrun.py: stage {step} exited {code}; stopping.", file=sys.stderr)
             return code
+        if step == "extract_activations" and "--dry-run" not in shared:
+            _ensure_activations_local(shared)
     return 0
+
+
+def _ensure_activations_local(shared_args: list[str]) -> None:
+    """Re-download activation chunks if extraction deleted them after uploading.
+
+    With ``delete_local_after_sync=True`` (the default) the tensors live only in R2
+    once extraction finishes, but stages 2 and 3 read them from disk. Pulling here
+    keeps ``run.py all`` a single command. No-op when the chunks are already local.
+    """
+    import argparse
+
+    from extract_emotion_vectors.extract_activations import build_parser, load_config
+
+    # Reuse the stage parser so --set overrides resolve exactly as the stages saw them.
+    try:
+        args = build_parser().parse_args(shared_args)
+        config = load_config(args)
+    except SystemExit:
+        return
+
+    indexed = sorted(config.activations_dir.glob("shard*/chunk_*.index.parquet"))
+    missing = [
+        p for p in (i.with_suffix("").with_suffix(".safetensors") for i in indexed)
+        if not p.exists()
+    ]
+    if not missing:
+        return
+
+    print(
+        f"\nrun.py: {len(missing)} activation chunk(s) are in R2 only "
+        "(delete_local_after_sync=True).\n"
+        "        Pulling them back so direction fitting can read them...",
+        flush=True,
+    )
+    try:
+        from core.r2 import R2Client
+
+        stats = R2Client.from_env().sync_down(
+            config.activations_dir, config.resolved_r2_prefix(), verbose=False
+        )
+        print(f"        downloaded {stats['downloaded']}, already present {stats['skipped']}, "
+              f"{stats['bytes'] / 1024**3:.2f} GiB", flush=True)
+    except Exception as exc:
+        print(f"        WARNING could not pull from R2: {exc}", file=sys.stderr)
+        print("        The next stage will fail with instructions; pull manually and re-run "
+              "just that stage.", file=sys.stderr)
 
 
 if __name__ == "__main__":
