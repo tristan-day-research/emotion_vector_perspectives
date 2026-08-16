@@ -31,6 +31,16 @@ STAGES = {
     "extract_activations": "extract_emotion_vectors.extract_activations",
     "compute_directions": "extract_emotion_vectors.compute_directions",
     "evaluate_directions": "extract_emotion_vectors.evaluate_directions",
+    "phase0_lens_gate": "emotion_pca_jlens.phase0_lens_gate",
+    "phase1_stimuli": "emotion_pca_jlens.phase1_stimuli",
+    "phase2_vectors": "emotion_pca_jlens.phase2_vectors",
+    "phase3_pca": "emotion_pca_jlens.phase3_pca",
+    "phase4_lens_pcs": "emotion_pca_jlens.phase4_lens_pcs",
+    "phase5_extensions": "emotion_pca_jlens.phase5_extensions",
+    "phase6_decompose": "emotion_pca_jlens.phase6_decompose",
+    "phase7_channels": "emotion_pca_jlens.phase7_channels",
+    "phase8_steer": "emotion_pca_jlens.phase8_steer",
+    "refit_lens": "emotion_pca_jlens.refit_lens",
     "r2": "core.r2",
 }
 
@@ -45,6 +55,24 @@ ALIASES = {
     "evaluate": "evaluate_directions",
     "eval": "evaluate_directions",
     "pipeline": "all",
+    "phase0": "phase0_lens_gate",
+    "lens_gate": "phase0_lens_gate",
+    "phase1": "phase1_stimuli",
+    "stimuli": "phase1_stimuli",
+    "phase2": "phase2_vectors",
+    "vectors": "phase2_vectors",
+    "phase3": "phase3_pca",
+    "pca": "phase3_pca",
+    "phase4": "phase4_lens_pcs",
+    "lens_pcs": "phase4_lens_pcs",
+    "phase5": "phase5_extensions",
+    "extensions": "phase5_extensions",
+    "phase6": "phase6_decompose",
+    "decompose": "phase6_decompose",
+    "phase7": "phase7_channels",
+    "channels": "phase7_channels",
+    "phase8": "phase8_steer",
+    "steer": "phase8_steer",
 }
 
 USAGE = f"""usage: python run.py <stage> [args...]
@@ -54,7 +82,49 @@ stages:
   compute_directions    mean-difference directions + neutral-PC removal
   evaluate_directions   held-out metrics, stability, plots
   all                   the three above, in order
+  phase0_lens_gate      load + verify the Jacobian lens (GATE)  (needs the GPU)
+  phase1_stimuli        circumplex emotion stimulus set (GATE)  (no model)
+  phase2_vectors        one residual vector per emotion (GATE)  (needs the GPU)
+  phase3_pca            PCA across the emotion vectors (GATE)  (no model)
+  phase4_lens_pcs       J-lens the principal components (GATE) (needs the GPU)
+  phase5_extensions     layer sweep / perspective / within-emotion (GATES)
+  phase6_decompose      reportable / remainder split (GATE)   (needs the GPU)
+  phase7_channels       report + behaviour channels (GATE)    (GPU + a judge)
+  phase8_steer          4 conditions x 2 channels (GATE)      (GPU + a judge)
   r2                    Cloudflare R2 mirroring CLI (push/pull/ls/check)
+
+`all` covers only the three mean-difference stages. The emotion-space PCA +
+J-lens experiment runs one phase at a time on purpose -- each ends at a gate
+that wants a human to look at it before the next phase runs:
+
+  python run.py phase0 --dry-run    # lens facts only, no model weights
+  python run.py phase0              # the real gate
+  python run.py phase1 --coverage-only   # emotion set only, no dataset
+  python run.py phase1                   # assemble the stimulus table
+  python run.py phase2 --dry-run         # stimuli + storage; no model weights
+  python run.py phase2 --limit 256       # throughput benchmark
+  python run.py phase2                   # extract + the reliability gate
+  python run.py phase3                   # PCA + the circumplex gate
+  python run.py phase4 --dry-run         # lens vs PCs; no model weights
+  python run.py phase4                   # lens the PCs, both ends
+  python run.py phase5 layer-sweep       # where the circumplex lives
+  python run.py phase5 within-emotion    # the contrast that justifies 3
+  python run.py phase5 perspective       # self/other axis (extracts)
+  python run.py phase6                   # split v into v_J + v_perp
+  python run.py phase7 --dry-run         # rubrics + separation; no weights
+  python run.py phase7                   # build + validate the channels
+  python run.py phase8 --dry-run         # grid shape + cost; no weights
+  python run.py phase8                   # the 4x2 grid
+
+phase6 needs only phase2 and the phase0 lens, so phase5 can be skipped.
+
+phase2 is the only stage of that experiment which collects activations, so it is
+also the only one that takes --num-shards/--shard-index:
+
+  for i in 0 1; do
+    CUDA_VISIBLE_DEVICES=$i python run.py phase2 \\
+        --num-shards 2 --shard-index $i --set device_map=None &
+  done; wait
 
 aliases: {', '.join(f'{k}->{v}' for k, v in ALIASES.items())}
 
@@ -162,6 +232,13 @@ def _ensure_activations_local(shared_args: list[str]) -> None:
     With ``delete_local_after_sync=True`` (the default) the tensors live only in R2
     once extraction finishes, but stages 2 and 3 read them from disk. Pulling here
     keeps ``run.py all`` a single command. No-op when the chunks are already local.
+
+    Two cases need pulling, and the second is easy to miss: the post-extraction
+    state (index parquets local, tensors in R2), and a *fresh machine* where the
+    activations directory is empty or absent. Deciding what to fetch by diffing
+    against local parquets covers only the first -- with nothing local there are no
+    parquets to diff, so the run would silently pull nothing and fail in stage 2
+    with "no completed chunks".
     """
     from extract_emotion_vectors.extract_activations import build_parser, load_config
 
@@ -177,13 +254,19 @@ def _ensure_activations_local(shared_args: list[str]) -> None:
         p for p in (i.with_suffix("").with_suffix(".safetensors") for i in indexed)
         if not p.exists()
     ]
-    if not missing:
+    if indexed and not missing:
         return
 
+    if not indexed:
+        reason = ("no activations on this machine (empty or absent "
+                  f"{config.activations_dir})")
+    else:
+        reason = (f"{len(missing)} activation chunk(s) are in R2 only "
+                  "(delete_local_after_sync=True)")
+
     print(
-        f"\nrun.py: {len(missing)} activation chunk(s) are in R2 only "
-        "(delete_local_after_sync=True).\n"
-        "        Pulling them back so direction fitting can read them...",
+        f"\nrun.py: {reason}.\n"
+        "        Pulling from R2 so direction fitting can read them...",
         flush=True,
     )
     try:

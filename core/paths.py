@@ -41,7 +41,28 @@ def run_dir(run_name: str) -> Path:
 
 
 def load_emotions_171() -> list[str]:
-    """The canonical 171 emotion words, in the paper's alphabetical order."""
+    """The canonical 171 emotion words, in the paper's alphabetical order.
+
+    Raises:
+        FileNotFoundError: With sync-specific guidance. This file is committed, so
+            the realistic way it goes missing is a *sync* that dropped it -- which
+            happened: rsync's ``--filter=':- .gitignore'`` is first-match-wins
+            while git is last-match-wins, so a ``data/**`` rule beat the
+            ``!data/emotions_171.txt`` negation and the file never reached the pod.
+            A bare ``FileNotFoundError`` from ``pathlib`` sends you looking for a
+            missing download instead. Kept an ``OSError`` subclass because callers
+            that treat the list as optional catch that.
+    """
+    if not EMOTIONS_171_FILE.exists():
+        raise FileNotFoundError(
+            f"{EMOTIONS_171_FILE} is missing.\n"
+            "  This file is committed to the repo, so on a pod it is almost always a\n"
+            "  sync problem rather than a missing download. Check that .gitignore has\n"
+            "  no broad `data/**` rule: rsync applies ignore rules first-match-wins,\n"
+            "  the opposite of git, so a later `!data/emotions_171.txt` negation is\n"
+            "  silently ignored and the file never ships.\n"
+            "  Fix locally, then re-run the sync (e.g. `run-experiment <stage>`)."
+        )
     text = EMOTIONS_171_FILE.read_text(encoding="utf-8")
     return [line.strip() for line in text.splitlines() if line.strip()]
 

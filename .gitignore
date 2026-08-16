@@ -1,8 +1,14 @@
 # --- Data, model weights, caches (never commit) ---
-data/**
-!data/.gitkeep
-!data/README.md
-!data/emotions_171.txt
+# Deliberately NOT `data/**` plus `!data/emotions_171.txt`. Git resolves an ignore
+# file last-match-wins, so the negation re-includes the file; rsync's
+# `--filter=':- .gitignore'` (used by scripts/sync_up.sh) resolves it
+# FIRST-match-wins, so `data/**` won and the negation never fired -- the 171-word
+# reference list silently never reached the pod. The two tools read the same file
+# with opposite precedence, so any broad-exclude + negation pair here is a trap.
+#
+# Everything large that lands in data/ is covered by name below (hf_cache/,
+# *.parquet, *.arrow, ...), so no directory-wide rule is needed and no negation
+# has to override one.
 
 # Hugging Face / torch caches
 .cache/

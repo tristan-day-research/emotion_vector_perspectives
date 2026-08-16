@@ -1,10 +1,19 @@
 # Core numerics / modelling
 torch>=2.4
-transformers>=4.45
+# jlens declares transformers>=5.5; keeping one version for both pipelines avoids
+# a resolver conflict on the pod.
+transformers>=5.5
 accelerate>=0.34
 safetensors>=0.4.3
 numpy>=1.26
 scipy>=1.11
+
+# Jacobian lens (J-lens): Anthropic's reference implementation, Apache-2.0.
+# Not on PyPI -- installed from the pinned commit whose conventions
+# core/jlens_lens.py was written against. Pre-fitted lens tensors come from the
+# neuronpedia/jacobian-lens Hub repo at run time, not from this package.
+jlens @ git+https://github.com/anthropics/jacobian-lens.git@581d398613e5602a5af361e1c34d3a92ea82ba8e
+pyyaml>=6.0
 
 # Data
 datasets>=2.21
@@ -21,6 +30,12 @@ tqdm>=4.66
 
 # Optional: 4/8-bit quantisation (config.quantization). Not needed for bf16 runs.
 # bitsandbytes>=0.43
+
+# LLM judge for phases 7-9 (core/judge.py). External on purpose: scoring the
+# steered model with itself would let the steering perturb the judge as well as the
+# subject. Needs ANTHROPIC_API_KEY in r2.env, and it is a per-call cost -- Phase 7
+# prints the estimate for Phase 8's grid before you commit to it.
+anthropic>=0.69
 
 # Optional: Cloudflare R2 (S3-compatible) activation mirroring
 boto3>=1.34

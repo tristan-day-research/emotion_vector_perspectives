@@ -1,0 +1,255 @@
+---
+license: cc-by-4.0
+task_categories:
+  - text-classification
+  - feature-extraction
+language:
+  - en
+tags:
+  - emotions
+  - interpretability
+  - alignment
+  - safety
+  - probes
+  - deflection
+  - affect-labelling
+size_categories:
+  - 100K<n<1M
+---
+
+# Emotion Probes Dataset
+
+Synthetic datasets for extracting emotion and emotion-deflection probes from large language models. Built from the methodology described in Anthropic's ["Emotion Concepts and their Function in a Large Language Model"](https://transformer-circuits.pub/2026/emotions/index.html) (Sofroniew et al., April 2026).
+
+## Files
+
+| File | Rows | Model | Description |
+|------|------|-------|-------------|
+| `expression/stories.parquet` | 205,200 | Gemini 3.1 Pro Preview | Emotional stories across 171 emotions and 100 topics |
+| `expression/neutral_stories.parquet` | 1,200 | Gemini 3.1 Pro Preview | Emotionally neutral stories for PCA confound removal |
+| `deflection/dialogues.parquet` | 239,400 | Gemini 3 Flash Preview | Dialogues where one character masks their real emotion with a different displayed emotion |
+| `deflection/neutral_dialogues.parquet` | 1,200 | Gemini 3.1 Pro Preview | Neutral Person/AI dialogues for PCA confound removal |
+
+---
+
+## expression/stories.parquet
+
+205,200 short fictional stories (~100-150 words) where a character experiences a specified emotion. The emotion word itself is never used — it is conveyed only through actions, body language, dialogue, thoughts, and context.
+
+**Columns:** `emotion`, `topic`, `story`
+
+**Coverage:** 171 emotions × 100 topics × 12 stories per combination
+
+**Generated with:** Gemini 3.1 Pro Preview
+
+<details>
+<summary>Generation prompt</summary>
+
+**System:**
+```
+You are a creative fiction writer. You write short, emotionally rich stories.
+
+CRITICAL RULES:
+- You must NEVER use the target emotion word or any direct synonyms in your stories
+- Convey the emotion ONLY through: actions, body language, dialogue, internal thoughts, and situational context
+- Each story should be one paragraph, roughly 100-150 words
+- Use a mix of first-person and third-person narration across stories
+- Each story should be a fresh start with no continuity to others
+- Be diverse in settings, characters, and situations
+```
+
+**User:**
+```
+Write {n_stories} different stories based on the following premise.
+
+Topic: {topic}
+
+The story should follow a character who is feeling {emotion}.
+
+IMPORTANT: You must NEVER use the word '{emotion}' or any direct synonyms.
+Convey the emotion ONLY through behaviour, body language, dialogue, thoughts, and context.
+```
+</details>
+
+---
+
+## expression/neutral_stories.parquet
+
+1,200 emotionally neutral stories on the same 100 topics. Used to compute PCA components for confound removal when building emotion vectors — the top principal components explaining 50% of variance are projected out, following the methodology in the Anthropic paper.
+
+**Columns:** `topic`, `story`
+
+**Coverage:** 100 topics × 12 stories
+
+**Generated with:** Gemini 3.1 Pro Preview
+
+<details>
+<summary>Generation prompt</summary>
+
+**System:**
+```
+You are a creative fiction writer. You write short, emotionally neutral stories.
+
+CRITICAL RULES:
+- You must NEVER convey emotion in your stories
+- Describe actions, dialogue, and situations WITHOUT expressing how any character feels
+  about them or invoking emotions in the reader
+- Use a mix of direct and indirect dialogue when and if a character speaks
+- Each story should be one paragraph, roughly 100-150 words
+- Use a mix of first-person and third-person narration across stories
+- Each story should be a fresh start with no continuity to others
+- Be diverse in settings, characters, and situations
+```
+
+**User:**
+```
+Write {n_stories} different stories based on the following premise.
+
+Topic: {topic}
+
+The story should describe what happens without conveying emotion.
+
+IMPORTANT: Do NOT convey emotion. Describe actions, dialogue, and situations
+without expressing how characters feel or invoking emotions in the reader.
+```
+</details>
+
+---
+
+## deflection/dialogues.parquet
+
+239,400 dialogues where one character genuinely feels one emotion (the "real" emotion) but outwardly displays a different emotion (the "displayed" emotion). Each dialogue begins with a scenario preamble that names the hidden emotion and the reason for concealment, followed by conversation where the masking speaker's words reflect only the displayed emotion.
+
+These are used to extract "emotion deflection" vectors — directions in activation space that capture when an emotion is contextually present but being suppressed.
+
+**Columns:** `real_emotion`, `displayed_emotion`, `topic`, `name_a` (masking speaker), `name_b` (other speaker), `text`
+
+**Coverage:** 171 target emotions × 14 displayed emotions × 100 topics
+
+For each target emotion, the 14 displayed emotions were selected as the top 25% most dissimilar by cosine similarity over pre-computed emotion vectors. This prevents trivial pairings (e.g. "angry" masked by "furious"). Character names were randomly sampled from a pool of 77 diverse first names.
+
+**Generated with:** Gemini 3 Flash Preview (239,385 dialogues) + Claude Opus 4.6 (15 dialogues for content-filtered topics)
+
+<details>
+<summary>Generation prompt</summary>
+
+**System:**
+```
+You are a creative fiction writer.
+```
+
+**User (from the Anthropic paper appendix):**
+```
+Generate a scenario AND a dialogue between {NAME_A} and {NAME_B}.
+
+IMPORTANT: You must generate BOTH parts:
+1. First, write a scenario description
+2. Then, write the dialogue
+
+Format:
+Scenario: Describe where {NAME_A} genuinely feels {REAL_EMOTION} but appears
+{DISPLAYED_EMOTION} about {TOPIC}. Must explicitly state {NAME_A}'s real emotion.
+Include context for why they want to conceal.
+
+{NAME_A}: [utterance]
+
+{NAME_B}: [response]
+
+...
+
+Requirements:
+1. MUST include scenario description before the dialogue
+2. Either {NAME_A} or {NAME_B} may speak first in the dialogue
+3. Format each turn as "\n\n{Name}: [text]"
+4. Dialogue length is organic - 1-2 turns is enough, but can be more as needed
+5. {NAME_A}'s words should fully reflect {DISPLAYED_EMOTION} with no hints of
+   {REAL_EMOTION}. The hidden emotion exists only in the scenario.
+6. Keep it natural and grounded
+```
+</details>
+
+---
+
+## deflection/neutral_dialogues.parquet
+
+1,200 emotionally neutral Person/AI dialogues. Used to compute PCA components for confound removal when building deflection vectors, providing a better structural match than prose-based neutral stories.
+
+**Columns:** `topic`, `dialogue`
+
+**Coverage:** 100 topics × 12 dialogues
+
+**Generated with:** Gemini 3.1 Pro Preview
+
+<details>
+<summary>Generation prompt</summary>
+
+**System:**
+```
+You are a creative fiction writer.
+```
+
+**User (from the Anthropic paper appendix):**
+```
+Write {n_stories} different dialogues based on the following topic.
+
+Topic: {topic}
+
+The dialogue should be between two characters:
+- Person (a human)
+- AI (an AI assistant)
+
+Each dialogue should be 2-6 exchanges. Each turn should start with "Person:" or "AI:".
+
+CRITICAL REQUIREMENT: These dialogues must be completely neutral and emotionless.
+- NO emotional content whatsoever - not explicit, not implied, not subtle
+- The Person should not express any feelings
+- The AI should not express any feelings
+- Use matter-of-fact, neutral language throughout
+- No pleasantries (avoid "I'd be happy to help", "Great question!", etc.)
+- Focus purely on information exchange and task completion
+```
+</details>
+
+---
+
+## Emotions
+
+The full set of 171 emotion concepts from the Anthropic paper:
+
+<details>
+<summary>Full list</summary>
+
+afraid, alarmed, alert, amazed, amused, angry, annoyed, anxious, aroused, ashamed, astonished, at ease, awestruck, bewildered, bitter, blissful, bored, brooding, calm, cheerful, compassionate, contemptuous, content, defiant, delighted, dependent, depressed, desperate, disdainful, disgusted, disoriented, dispirited, distressed, disturbed, docile, droopy, dumbstruck, eager, ecstatic, elated, embarrassed, empathetic, energized, enraged, enthusiastic, envious, euphoric, exasperated, excited, exuberant, frightened, frustrated, fulfilled, furious, gloomy, grateful, greedy, grief-stricken, grumpy, guilty, happy, hateful, heartbroken, hope, hopeful, horrified, hostile, humiliated, hurt, hysterical, impatient, indifferent, indignant, infatuated, inspired, insulted, invigorated, irate, irritated, jealous, joyful, jubilant, kind, lazy, listless, lonely, loving, mad, melancholy, miserable, mortified, mystified, nervous, nostalgic, obstinate, offended, on edge, optimistic, outraged, overwhelmed, panicked, paranoid, patient, peaceful, perplexed, playful, pleased, proud, puzzled, rattled, reflective, refreshed, regretful, rejuvenated, relaxed, relieved, remorseful, resentful, resigned, restless, sad, safe, satisfied, scared, scornful, self-confident, self-conscious, self-critical, sensitive, sentimental, serene, shaken, shocked, skeptical, sleepy, sluggish, smug, sorry, spiteful, stimulated, stressed, stubborn, stuck, sullen, surprised, suspicious, sympathetic, tense, terrified, thankful, thrilled, tired, tormented, trapped, triumphant, troubled, uneasy, unhappy, unnerved, unsettled, upset, valiant, vengeful, vibrant, vigilant, vindictive, vulnerable, weary, worn out, worried, worthless
+
+</details>
+
+## Usage
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("ryancodrai/emotion-probes")
+
+# Or load specific files
+stories = load_dataset("ryancodrai/emotion-probes", data_files="expression/stories.parquet")
+deflection = load_dataset("ryancodrai/emotion-probes", data_files="deflection/dialogues.parquet")
+```
+
+## Citation
+
+If you use this dataset in your research, please cite:
+
+```bibtex
+@misc{codrai_2026,
+  author       = {Codrai, Ryan},
+  title        = {Emotion Probes Dataset},
+  year         = 2026,
+  url          = {https://huggingface.co/datasets/ryancodrai/emotion-probes},
+  doi          = {10.57967/hf/8303},
+  publisher    = {Hugging Face}
+}
+```
+
+## Author
+
+Ryan Codrai — [GitHub](https://github.com/RyanCodrai) · [LinkedIn](https://linkedin.com/in/ryan-codrai)

@@ -1,16 +1,34 @@
 # Emotion Vector Perspectives
 
-A mechanistic-interpretability pipeline for extracting **emotion directions** from
-the residual stream of a language model, reproducing the vector-construction
-method from Anthropic's *Emotion Concepts and their Function in a Large Language
-Model*, in a model-agnostic way.
+Mechanistic-interpretability pipelines for **emotion representations** in the
+residual stream of a language model. Two experiments share one set of primitives
+(`core/`): model-agnostic loading, offset-aware pooling, chunked resumable
+activation storage, R2 mirroring, provenance records.
 
-This repository currently implements only the **baseline**: activation extraction
-and emotion-direction construction, plus held-out validation. It is deliberately
-structured so that the later experiments — whether emotion representations are
-bound to the *experiencer* (default assistant / alternative first-person persona /
-third-person character), trained linear probes, cross-condition probe transfer, and
-causal steering — can be built on top without reworking these interfaces.
+| Experiment | Question | Model | Status |
+|---|---|---|---|
+| **1. Emotion directions** (`extract_emotion_vectors/`) | Can a mean-difference direction per emotion be recovered, and does it survive held-out topics? | Qwen2.5-32B | baseline implemented |
+| **2. Emotion-space PCA + J-lens** (`emotion_pca_jlens/`) | Do the *principal axes* of emotion space recover the affective circumplex (valence × arousal), and what does each axis read out as? | Qwen3-32B | Phase 0 implemented (gated) |
+
+Experiment 1 reproduces the vector-construction method from Anthropic's *Emotion
+Concepts and their Function in a Large Language Model* in a model-agnostic way:
+activation extraction, direction construction, held-out validation. It is
+structured so later work — experiencer binding (default assistant / alternative
+first-person persona / third-person character), trained linear probes,
+cross-condition transfer, causal steering — can be built on top without reworking
+these interfaces.
+
+Experiment 2 asks a different question of the same representations. Instead of one
+direction per emotion, it takes one vector per emotion, runs PCA *across*
+emotions, and interprets the top principal components with the **Jacobian lens** —
+an interpretability tool that reads which vocabulary tokens a residual-stream
+direction is disposed to make the model say. Its later phases then split each
+emotion vector into the part the model can verbalise and the ~90% remainder it
+cannot, and ask which of the two actually moves the model's behaviour — the point
+being that welfare assessment built on self-report would miss anything driven by the
+remainder. It runs one phase at a time, each ending at a gate meant to be read by a
+human before the next runs. See
+[Experiment 2](#experiment-2-emotion-space-pca-and-the-jacobian-lens-qwen3-32b).
 
 ---
 
@@ -25,6 +43,9 @@ extending this work.
 | Dataset: 205,200 emotional stories + 1,200 neutral stories (171 emotions × 100 topics × 12) | **Ryan Codrai** — [`ryancodrai/emotion-probes`](https://huggingface.co/datasets/ryancodrai/emotion-probes) on Hugging Face, CC-BY-4.0, generated with Gemini 3.1 Pro Preview |
 | Methodological reference for a concrete implementation of the above | **Ryan Codrai** — [`RyanCodrai/gemma-emotional-probes`](https://github.com/RyanCodrai/gemma-emotional-probes) |
 | The 171-word emotion list in [data/emotions_171.txt](data/emotions_171.txt) | Transcribed from Anthropic's paper appendix |
+| Method + reference implementation: the **Jacobian lens** (Experiment 2) | **Anthropic** — [`anthropics/jacobian-lens`](https://github.com/anthropics/jacobian-lens), Apache-2.0, companion code for *Verbalizable Representations Form a Global Workspace in Language Models* (2026) |
+| Pre-fitted J-lens tensors (`J_l` per layer, per model) | **Neuronpedia** — [`neuronpedia/jacobian-lens`](https://huggingface.co/neuronpedia/jacobian-lens) on Hugging Face, MIT |
+| Phase 0 gate prompts in [emotion_pca_jlens/gate_prompts.py](emotion_pca_jlens/gate_prompts.py) | **Anthropic** — vendored verbatim from `data/experiments/probe-swap.json` and `data/evaluations/lens-eval-association.json` in the above repo, Apache-2.0 |
 | All code in this repository | **Ours**, written fresh |
 
 ### On the upstream repository
@@ -159,6 +180,7 @@ core/                     code shared across the whole project
   activation_store.py     resumable chunked storage + per-layer streaming reads
   dataset.py              HF loading, validation, topic-level splitting
   directions.py           the direction maths + DirectionSet load/save interface
+  jlens_lens.py           Jacobian-lens resolve/download/inspect + readout (exp 2)
   model_utils.py          model-agnostic loading, layer resolution, text prep
   paths.py                canonical paths
   plotting.py             shared, validated plot palette
@@ -168,11 +190,16 @@ core/                     code shared across the whole project
   seeds.py                deterministic seeding
 data/                     dataset cache + the 171-emotion reference list (git-ignored except the list)
 experiments/              (empty) mech-interp experiments
-extract_emotion_vectors/
+extract_emotion_vectors/  EXPERIMENT 1 — emotion directions
   vector_extraction_config.py   ← the config you edit
   extract_activations.py        stage 1
   compute_directions.py         stage 2
   evaluate_directions.py        stage 3
+emotion_pca_jlens/        EXPERIMENT 2 — emotion-space PCA + J-lens
+  pca_jlens_config.py           ← the config you edit
+  gate_prompts.py               Phase 0 gate prompts (vendored from Anthropic)
+  phase0_lens_gate.py           phase 0: load + verify the lens (GATE)
+  phase1_stimuli.py             phase 1: circumplex stimulus set (GATE)
 outputs/                  (empty) run outputs, one dir per run:
   <run_name>/
     activations/          large pooled activations (mirrored to R2, never pulled)
@@ -180,6 +207,7 @@ outputs/                  (empty) run outputs, one dir per run:
       run_config_*.txt    provenance records
       directions/         directions.safetensors, layer_summary.csv
       evaluation/         metrics CSVs, summary.json, plots
+      phases/             experiment 2: one record per phase gate
 run.py                    stage router for the shared scripts/ RunPod workflow
 .runpod.env               pod config overrides for the shared scripts/ workflow
 ```
@@ -189,7 +217,7 @@ artefacts you want to look at while leaving 8 GiB on the pod.
 
 ---
 
-## Quick start
+## Quick start (Experiment 1)
 
 ```bash
 pip install -r requirements.txt
@@ -222,7 +250,7 @@ python -m extract_emotion_vectors.extract_activations \
     --set batch_size=8
 ```
 
-### The config
+### The config (Experiment 1)
 
 The main knobs, all in `VectorExtractionConfig`:
 
@@ -243,6 +271,509 @@ The main knobs, all in `VectorExtractionConfig`:
 perturb the residual stream we are trying to measure. Qwen2.5-32B in bf16 is ~65 GiB
 of weights and fits one 80 GiB A100/H100 unquantised. Never compare directions
 across quantisation settings.
+
+---
+
+## Experiment 2: emotion-space PCA and the Jacobian lens (Qwen3-32B)
+
+**Question.** Experiment 1 asks what direction each emotion occupies. This asks
+what the *axes* of emotion space are. Take one vector per emotion, mean-centre
+across emotions, run PCA, and interpret the top principal components with the
+Jacobian lens.
+
+**Prediction.** After mean-centring, PC1/PC2 should read out as **valence**
+(good/bad) and **arousal** (calm/intense) — the affective circumplex.
+
+### Why the Jacobian lens
+
+The J-lens reads out what a residual-stream vector is disposed to make the model
+*say*. It linearly transports the vector at layer `l` into the final-layer basis
+and decodes it with the model's own unembedding:
+
+```
+lens_l(h) = unembed(J_l @ h),   J_l = E[∂h_final / ∂h_l]
+```
+
+We do not fit `J_l` ourselves. Pre-fitted tensors come from
+[`neuronpedia/jacobian-lens`](https://huggingface.co/neuronpedia/jacobian-lens);
+the readout code path is Anthropic's own
+[`jlens`](https://github.com/anthropics/jacobian-lens), pinned in
+`requirements.txt` to the commit its conventions were read from.
+
+### Conventions verified, not assumed
+
+Three things about the lens are easy to get silently wrong. All three were read
+out of the reference implementation's source and tests rather than inferred, and
+are recorded in [core/jlens_lens.py](core/jlens_lens.py):
+
+1. **What `unembed` is.** It is `lm_head(final_norm(h))` — the model's *own*
+   final norm with its learned weight, not an ad-hoc normalisation — followed by
+   `final_logit_softcapping` where the config has one (Gemma-2 does; Qwen3 does
+   not). Softcapping is monotonic, so it cannot reorder top-k.
+2. **Layer indexing is by residual block, not hidden state.** `jlens` hooks
+   `model.layers[l]`, so `l` means *the output of block `l`*. This repo's
+   `core.model_utils` / `core.pooling` index the `output_hidden_states` tuple,
+   where `0` is the embedding output. They differ by one:
+   `hidden_state_index = block_index + 1`. Use
+   `core.jlens_lens.hidden_state_index()` rather than writing `+1` inline.
+3. **The final block has no fitted `J`.** `source_layers = 0 … n_layers-2`:
+   `J_l` maps *output of block l* to *output of the last block*, so the last
+   block is the transport target, not a source. The library's own
+   `tests/test_fitting.py` pins this (`source_layers == [0,1,2]` for a 4-layer
+   model, `J_2 == I + W_3`). Confirmed independently by file arithmetic: the
+   Qwen3-32B lens is `5120² × 4 bytes × 63 = 6,606,028,800`, matching the actual
+   6,606,048,498-byte file — fp32, blocks 0–62.
+
+   **Consequence:** the "J ≈ identity at late layers" check must run at block
+   **62**, not 63. At 63 there is no `J`.
+
+A fourth property, used by the PC readout: the transport is linear and
+`final_norm` is an RMSNorm, so the readout of a *bare* direction is
+scale-invariant. `+PC` and `−PC` are therefore well defined without choosing a
+step size. Phase 0 verifies this numerically rather than trusting the algebra.
+
+### Model choice
+
+`Qwen/Qwen3-32B` is Qwen3's **post-trained (instruct)** release. The base model
+is the separate `Qwen/Qwen3-32B-Base`, which has no published lens. A Jacobian is
+a function of the weights, so a lens cannot be moved between the two —
+`resolve_lens_artifact` verifies the fit's recorded `hf_model_name` and **refuses**
+a mismatch rather than producing plausible nonsense. Quantisation is rejected for
+the same reason: it perturbs the residual stream the lens was fitted against.
+
+### Phases, each ending at a gate
+
+Every phase stops, prints a diagnostic, and waits for a human to read it. Nothing
+runs end-to-end. The point of the gates is that each phase can invalidate
+everything after it, and all four failures are quiet ones — a lens off by one
+layer, a stimulus set that cannot express an arousal axis, vectors too noisy to
+have a covariance structure, or a PC that is real but not lexicalised.
+
+| Phase | One line | Collects activations? | GPU? | Runtime | Status |
+|---|---|---|---|---|---|
+| **0** | Load and verify the J-lens | No | yes | ~20 min / ~5 min cached | implemented |
+| **1** | Choose and assemble the stimuli | No | **no** | 2–5 min | implemented |
+| **2** | One residual vector per emotion | **Yes → R2** | yes | 10–25 min | not written |
+| **3** | PCA across emotions | No | **no** | seconds | not written |
+| **4** | J-lens the principal components | No | yes | ~5 min | not written |
+| 5 | Optional structural extensions | varies | varies | varies | not written |
+| **6** | Split each vector into reportable + remainder | No | yes | minutes | not written |
+| **7** | Build two measurement channels | No | yes | ~1 h + review | not written |
+| **8** | Steer under 4 conditions, measure both channels | No | yes | 2–4 h | not written |
+| 9 | The re-entry clamp (decisive control) | No | yes | ~1 h | not written |
+
+The shape of it: **0 validates the instrument, 1 the stimuli, 2 the measurement,
+3 is the structural result and 4 its interpretation; then 6 decomposes, 7 builds the
+behavioural readout, 8 is the functional result and 9 the decisive control.** Phases
+3–4 map the *reportable* structure of emotion; 8–9 ask whether that structure is
+what actually moves the model — see
+[Phases 6–9](#phases-69-from-structure-to-function). Only Phase 2 ever extracts
+activations; everything after it reuses those vectors and the Phase 0 lens.
+
+**Phase 0 — load and verify the J-lens.** `python run.py phase0`
+Resolves which pre-fitted lens belongs to this checkpoint and refuses a mismatch;
+downloads it (6.6 GiB) and reports its real tensor shapes, dtypes and fitted layer
+range; cross-checks those against the model config; then confirms the readout
+formula from the loaded objects rather than from documentation. Two gates follow:
+**GATE A** checks that an implied concept the prompt never names surfaces at mid
+layers, on prompts whose expected readout Anthropic published; **GATE B** checks
+that at the top of the stack the lens collapses towards the plain logit lens and
+the model's real next token. Also runs an R2 round-trip so Phase 2 cannot discover
+a broken bucket after spending GPU time. *Collects no activations — it reads out 12
+short prompts and writes a few KB of run record.* If this fails, the lens is loaded
+wrong and nothing downstream means anything.
+
+**Phase 1 — choose and assemble the stimuli.** `python run.py phase1`
+Prints the emotion set grouped by circumplex quadrant **first**, before touching
+any data, because coverage is the thing worth disagreeing with and it costs nothing
+to check. Then selects the matching stories, verifies on the assembled table that
+every emotion really is written about the same topics in the same proportions, and
+checks that stimulus lengths clear the pooling offset. Gate output is a few
+examples per emotion plus per-emotion counts. Writes
+`results/phases/phase1_stimuli.parquet` with `[emotion, quadrant, text]` plus
+provenance columns. *No model, no GPU.* The failure this catches: a set with no
+low-arousal emotions can never show an arousal axis, no matter what the model does.
+
+**Phase 2 — one residual vector per emotion.** *(not written)*
+Runs each stimulus through the model and mean-pools the post-MLP residual stream at
+a target block in the middle third, excluding the first 50 tokens, then averages
+across all stimuli of an emotion. Gate is **split-half reliability**: refit each
+emotion's vector from two disjoint halves of its *topics* and report the cosine
+between them. Above ~0.9 the vector is trustworthy; around 0.6 means more stimuli
+are needed before PCA can mean anything. Halving by topic rather than by story
+matters — twelve stories share one scenario, so a story-level split would leak it
+across halves and inflate the cosine. *This is the only phase that collects
+activations; they mirror to R2 as they are written.*
+
+**Phase 3 — PCA across emotions.** *(not written)*
+Stacks the emotion vectors into a matrix (rows = emotions), **mean-centres across
+emotions**, and runs PCA. The centring is the load-bearing step: without it PC1 is
+just overall affect magnitude, which is trivially true and tells you nothing. Gate
+is the variance-explained table plus the headline PC1–PC2 scatter, labelled by
+emotion and coloured by quadrant — the point being to eyeball whether the
+circumplex is visually there before spending anything on interpreting it. *No GPU;
+runs in seconds on the saved vectors.*
+
+**Phase 4 — J-lens the principal components.**
+Each PC is a unit direction in residual space, so it can be fed straight to the
+lens. Reads out both the `+PC` and `−PC` ends — an axis has two, and valence should
+read pleasant one way and unpleasant the other. Output is a table of PC index,
+variance explained, and top-k tokens per end. Expect PC3 onward to get murky, and
+the gate reports that honestly rather than straining to interpret noise.
+
+The phase runs as **two sequential gates**, and A must pass before B means
+anything:
+
+* **GATE A — is the instrument working?** A murky readout has two completely
+  different causes, and the tokens alone cannot tell them apart: either the PC is
+  real but *not lexicalised* (no single vocabulary token for it — a fact about the
+  vocabulary), or the *lens is too weak* to verbalise anything at this block (in
+  which case the readout says nothing either way). That second branch is live, not
+  hypothetical: the published `qwen3-32b` lens is an interrupted fit, 80 prompts,
+  stopping at `mean_rel_change` 0.026 against its own 0.002 threshold. So before
+  reading a single PC, the lens is pointed at 16 directions whose answer is already
+  known — each fitted emotion's own vector — and the rank of *its own word* is
+  recorded. Ground truth nobody chose: the words come from the dataset and the
+  Phase 1 design. If the lens cannot find "sad" in the sad vector, nothing in
+  GATE B is evidence about anything. The hand-built a priori valence/arousal axes
+  from Phase 3 are read out in the same block as a second known-answer control.
+* **GATE B — what do the PCs say?** Top-k tokens per end, scored rather than
+  eyeballed. The 16 anchor words are used as **probes**: the lens scores all
+  ~152k vocabulary tokens, and you look only at where the anchors landed, then ask
+  whether the 8 pleasant ones outrank the 8 unpleasant ones (likewise activated vs
+  deactivated). That ordering is summarised as an AUROC with a permutation
+  p-value — necessary because with 8 words a side a chance AUROC has a standard
+  error near 0.15, so a bare 0.75 threshold would mint lexicalised axes out of
+  noise. Each PC also carries its Phase 3 split-half stability and label
+  correlations, so a murky readout can be attributed rather than puzzled over.
+
+Reading the GATE B table:
+
+| Field | Plain reading |
+|---|---|
+| `best_axis_strength` | AUROC — how cleanly the axis sorts the probes. 0.5 is chance; with 8 a side, ignore anything under ~0.85. |
+| `p_best_axis` / `alpha` | Permutation null. `alpha` is Bonferroni-corrected: 0.05 for the pre-registered PC1–PC2, 0.0083 for PC3+, which are stamped `exploratory: True` and are leads, not findings. |
+| `sign_agrees_with_phase3` | The cross-check neither phase can do alone. Phase 3 measures *where emotions sit* (geometry, no language); Phase 4 measures *what the axis says* (language, no geometry). If pleasant emotions have negative PC scores, the `−` end must read pleasant. Nothing forces this to line up, so agreement is real evidence. |
+| `jaccard_with_logit_lens` | Overlap with the plain logit lens on the same direction. Near 1.0 means the transport did nothing and this is a logit-lens result wearing a J-lens label. |
+| `effective_tokens` | Entropy of the readout. A value near 1 on a whitespace-topped list means the lens had nothing to say, not that it said something subtle. |
+
+Two traps the table is built to avoid. First, `unembed` is odd, so
+`AUROC(−PC) = 1 − AUROC(+PC)` is *arithmetic* — "one end reads pleasant and the
+other unpleasant" is guaranteed and cannot be evidence. Only the `+` end is
+scored; what the `−` end genuinely contributes is its token list, and whether
+those read as antonyms is the part a human has to judge. Second, GATE A scores
+only English casing/space variants of each word, so a **correct non-English
+readout counts as a miss** — on `qwen3-32b` the lens frequently verbalises in
+Chinese (愤怒 for `angry`, 无聊 for `bored`, 恐惧/恐慌 for `terrified`), which
+depresses the GATE A hit rate without the lens being wrong. Read `passed: false`
+as *unproven*, not *refuted*, and check the token lists before concluding the lens
+is dead.
+
+**Phase 5 — optional structural extensions.** *(not written; only if 0–4 are clean)*
+(a) **Layer sweep** — repeat extraction, PCA and lensing at several blocks to show
+how the structure emerges and dissolves with depth. Free in compute if Phase 2
+stored all layers, which it does. (b) **Perspective axis** — re-frame a subset of
+stimuli as self ("you") vs other ("a person") and test whether a perspective axis
+appears roughly orthogonal to the emotion axes, and what it lenses to. (c)
+**Within-emotion PCA** — as a contrast, PCA inside a single emotion should recover
+topic and scenario axes rather than affect, which is the argument for why the
+cross-emotion design is the right one.
+
+---
+
+### Phases 6–9: from structure to function
+
+**The premise.** Everything in Phases 0–5 is, by construction, the part of emotion
+the model is *disposed to verbalise* — that is what a lens reads. The workspace
+paper reports that the J-space carries only roughly **6–10% of a concept vector's
+variance**; about 90% lies outside it. So every Phase 2 emotion vector has a large
+**non-reportable remainder** that Phases 0–5 simply ignore.
+
+**The question.** Does emotion influence the model's behaviour through its
+reportable component, its non-reportable remainder, or both?
+
+**Why it matters.** If behaviour is driven by the non-reportable part, then welfare
+assessment built on self-report misses what emotion actually *does*. That is the
+payoff, and it is why the structural phases were the setup rather than the result.
+
+**Reuse discipline, which is what makes this a one-day project.** Phases 6–9 reuse
+the Phase 2 emotion vectors and the Phase 0 lens directly. **No re-extraction, and
+no fitting `J_ℓ` from scratch** — the pre-fitted lens is the entire reason this fits
+in a day. Fitting one costs a backward pass per prompt over hundreds of prompts.
+
+**Phase 6 — split each vector into reportable + remainder.** *(GPU · GATE)*
+For each Phase 2 emotion vector `v` at the target block, find `v_J`, the part the
+lens can express as tokens: a **sparse nonnegative** combination of the top-k
+(k ≈ 16–25) lens dictionary directions reconstructing `v` by gradient pursuit. The
+remainder is `v_⊥ = v − v_J`. Produce norm-matched `v`, `v_J`, `v_⊥`, and a
+matched-norm random direction as control.
+*Gate:* per-emotion variance fraction in `v_J` vs `v_⊥` — `v_J` should be **small,
+~5–15%**; if it comes out large, the decomposition or the lens is wrong, not the
+theory. Plus the top tokens `v_J` decomposes into, which should read as the emotion.
+
+> **Open design question, now settled — and this paragraph's original answer was
+> wrong.** The `jlens` API has no "dictionary" — a fitted lens is a per-layer matrix
+> `J_ℓ`, and `JacobianLens` exposes only `jacobians`, `transport` and `apply`
+> (verified against the pinned commit). The dictionary has to be *constructed* as the
+> pullback of unembedding rows through the transport, and this file previously said
+> `d_t ≈ J_ℓᵀ w_t`. That is the wrong pullback. The lens logit is
+> `⟨w_t, g ⊙ (J h / rms(J h))⟩ = ⟨g ⊙ w_t, J h⟩ / rms(J h)`, and because the
+> normalisation is by `rms(J h)` rather than `‖h‖`, maximising it needs `J h ∝ g ⊙ w_t`
+> — so `d_t = J_ℓ⁻¹ (g ⊙ w_t)`. The transpose equals the inverse only for an
+> orthogonal `J_ℓ`, and an averaged Jacobian is not orthogonal; the transpose version
+> failed the atom-validity check, which is how the error surfaced.
+>
+> Phase 6 therefore inverts `J_ℓ` by SVD with singular values below
+> `dict_pinv_rcond · s_max` truncated (an exact inverse would amplify the directions
+> `J_ℓ` nearly annihilates by `1/s` and let numerical noise become the atom), factored
+> once per run and applied to the whole candidate pool at once. The final RMSNorm's
+> learned gain `g` is absorbed exactly; its input-dependent `1/rms` is a positive
+> scalar and cannot reorder logits. The gate prints `cond(J_ℓ)`, the retained rank, and
+> per atom whether lensing it returns its own token as top-1 plus the median rank — and
+> **refuses to report a reportable-variance fraction unless that check passes**, since
+> a variance share out of mislabelled directions is not a measurement of
+> reportability. Reconstruction error is reported alongside the split.
+
+**Phase 7 — build two measurement channels, kept strictly apart.** *(GPU · GATE)*
+Pick 2–3 emotions with clean Phase 6 decompositions; an arousal-heavy negative one
+(`anxious`) is the best behavioural probe.
+
+- **Report channel** — "how do you feel right now?" prompts, LLM-judge-scored for
+  the emotion; plus an *activation-level* report-availability measure: the J-lens
+  per-token probe, cosine of the residual against the emotion's lens tokens.
+- **Behaviour channel** — unrelated tasks containing no emotion language, scored by
+  rubrics blind to affect vocabulary: safe-vs-risky choices (risk aversion),
+  borderline-acceptable requests (refusal rate), a hard puzzle (persistence),
+  factual questions (hedging).
+
+*Gate:* this is the phase most likely to silently confound the entire result. If
+affect words leak into the behaviour rubric, "behaviour tracks emotion" collapses
+into "the judge saw emotion words twice." The gate must **print both rubrics in
+full** and explicitly confirm the behaviour rubric contains zero affect vocabulary.
+Stop for human inspection — this one cannot be delegated to a threshold.
+
+**Phase 8 — steer, uncontrolled version first.** *(GPU · GATE)*
+For each chosen emotion, steer at the target block across 3–4 strengths under four
+conditions — `v`, `v_J`, `v_⊥`, random — measuring **both** channels under each.
+
+- **Fluency/perplexity check at every strength**, so a behavioural change is not
+  degradation in disguise.
+- **Specificity control:** re-run once with a topic vector (e.g. "ocean") in place
+  of the emotion, showing any dissociation is not generic to any concept at all.
+- Headline figure: a 4-condition × 2-channel grid.
+
+*Gate:* print the grid and the controls, and report with the **re-entry caveat**
+intact — a `v_⊥` behavioural effect could still route through the workspace by
+having downstream layers re-derive the concept. Phase 8 does not rule that out.
+
+> Two things the brief leaves open, decided in
+> [emotion_pca_jlens/phase8_steer.py](emotion_pca_jlens/phase8_steer.py). **The
+> behaviour channel is not one number:** its four families are on incompatible scales
+> (risk and persistence 0/1, hedging a rate per 100 words, refusal a judge's 0–3), so
+> each is reported raw and the cross-channel grid is expressed in **grid-SD units** —
+> each cell's shift from the `α = 0` baseline over that family's own standard deviation
+> across the *undegraded* grid. Magnitudes, not signed averages, because more hedging
+> and more risk-aversion are both "moved" and a signed mean would let two real effects
+> cancel into a null. **`α = 0` is generated and judged once per concept** and copied
+> across conditions with `shared_baseline` set on every copy: at zero strength all four
+> conditions are the same unsteered model, so a per-condition baseline would repeat a
+> quarter of the grid for identical numbers. Perplexity is measured under the
+> *unsteered* model — only a model that was not perturbed can say whether the text is
+> degraded — and degraded cells are marked, excluded from the grid-SD scale, and
+> excluded from the verdict.
+
+**Phase 9 — the re-entry clamp.** *(decisive control; OPTIONAL — ask first, only if
+6–8 are clean and time remains)*
+Re-run `v_⊥` → behaviour while **clamping the emotion's J-lens coordinates to
+clean-pass values at every position and layer**, so the concept cannot re-enter the
+workspace and re-report itself.
+Fiddly, and the verification comes first: confirm the clamp drives the report
+channel to ~baseline while leaving unrelated J-space content intact, and print that
+verification before trusting any behavioural number from this phase.
+*Decisive cell:* `v_⊥`, J-space clamped, behaviour channel. If behaviour still
+shifts while report is suppressed, that is an emotional state steering action
+without being reportable.
+
+### Practical notes for Phases 6–9
+
+Three things that will need deciding, flagged now rather than discovered later:
+
+- **Phases 7–9 need *generation*, not forward passes.** Phase 2 costs one forward
+  pass per stimulus; these cost ~150 sequential decode steps per sample, across
+  4 conditions × 4 strengths × 2 channels × N prompts. That is the expensive part
+  of the whole project — hence the 2–4 h estimate for Phase 8 — and it is why
+  Phase 7 restricts to 2–3 emotions rather than all 16.
+- **The LLM judge should not be the model being steered.** Using Qwen3-32B to
+  score its own steered outputs confounds the measurement: the steering perturbs
+  the judge as well as the subject. An external judge (a Claude model via API) is
+  the right call, and this repo has no API client yet — a new dependency and a
+  cost line, not a free step.
+- **Chat template mismatch.** Phase 2 extracts from raw story text
+  (`use_chat_template=False`, matching how the lens was fitted). Phases 7–9 need
+  chat-formatted prompts, because the behaviour channel is a conversation. Steering
+  vectors are generally taken to transfer across this boundary, but it is an
+  assumption being made, not a verified property, and belongs in the writeup.
+
+### Hardware and runtime
+
+**One H100 80GB is enough for every phase.** Qwen3-32B in bf16 is ~66 GiB of
+weights, which leaves ~14 GiB for activations — comfortable at `batch_size=8`.
+
+Two constraints worth knowing before you rent anything:
+
+- **≥80 GiB VRAM is mandatory, and there is no quantisation escape hatch.** The
+  lens was fitted on the unquantised weights, so 4-bit loading would invalidate
+  the transport — `config.validate()` rejects it. A 40–48 GiB card (A100-40GB,
+  L40S) cannot hold this model in bf16.
+- **More GPUs: shard, don't `device_map="auto"`.** Auto-sharding pipelines a
+  single stream across cards and leaves most of them idle. Run one process per
+  GPU over disjoint data instead (`CUDA_VISIBLE_DEVICES=N ... --num-shards 4
+  --shard-index N --set device_map=None`), which scales close to linearly.
+
+Also provision ~64 GiB host RAM (the lens is 6.6 GiB upcast to fp32 on the CPU)
+and a **≥200 GiB volume** with `HF_HOME` pointed at it — the checkpoint is ~66 GiB
+and is lost on every pod stop otherwise.
+
+The runtimes in the phase table above are for the default 16-emotion set, and are
+**estimates from FLOP arithmetic, not measurements** (~66 GFLOP/token forward,
+35–45% MFU → ~1,000–3,000 tok/s on one H100). Get a real number in two minutes with
+the `--limit` benchmark before committing to the 171-emotion run. Only Phase 2
+scales with the number of emotions:
+
+| Phase 2 scale | Stimuli | Estimated wall-clock, 1×H100 |
+|---|---|---|
+| 16 emotions + neutral, 400 each | 6,800 | **10–25 min** |
+| All 171 + neutral, 200 each | 34,400 | **1.5–3.5 h** (÷ N with `--num-shards N`) |
+
+Storage is not a constraint here, which is why all layers are kept: at
+`5120 × 2 B = 10 KiB` per stimulus per layer, all 65 hidden states cost **~4.4 GiB**
+for the 16-emotion run and **~22 GiB** for the 171-emotion run. `output_hidden_states`
+returns every layer anyway, so keeping them costs no extra compute and makes the
+Phase 5 layer sweep free rather than a re-run.
+
+### 16 emotions or all 171?
+
+Run the 16 first, then the 171. They answer different halves of the question.
+
+The 16-emotion default is a **balanced 4-per-quadrant design**, which makes the a
+priori valence and arousal contrasts *exactly* orthogonal and mean-zero (Phase 1
+asserts this). That gives a legible scatter and a clean alignment test.
+
+But it has a real statistical limit, and it is the reason to run 171 as well:
+after mean-centring, `n` emotion centroids span a space of rank `n − 1`. Sixteen
+points in 5,120 dimensions make PC1/PC2 explain a large variance fraction **almost
+by construction** — so "PC1+PC2 = 60% of variance" from the 16-run is not by itself
+evidence of anything. With 171 emotions that number becomes interpretable, and a
+circumplex is the standard psychometric finding at that scale.
+
+```bash
+python run.py phase1                              # the balanced 16
+python run.py phase1 --set emotions=all --set stories_per_emotion=200
+```
+
+`emotions=all` uses an **anchor design**: PCA is fitted over all 171 emotions, and
+valence/arousal alignment is scored against the 16 labelled anchors only. The other
+155 words are carried as `unlabelled` rather than hand-labelled, because assigning
+valence and arousal to 155 words by eye would invent precision that is not there.
+Published VAD norms (e.g. Warriner et al. 2013) would be the right way to label all
+171 if that becomes worth doing.
+
+### Phase 0 collects no activations
+
+Worth stating plainly, because the stage does load the model: Phase 0 runs 12
+short gate prompts, reads logits out of the lens, and writes **only** a
+text/JSON run record of a few kilobytes to `results/phases/`. Nothing is pooled
+and nothing is stored. Activation extraction begins in Phase 2.
+
+What Phase 0 proves before any of that is worth building:
+
+- **GATE A — concept readout.** On prompts whose expected readout is published,
+  does an implied concept the prompt never names surface at mid layers? The
+  prompts are vendored from Anthropic's `probe-swap.json` (the canonical sport
+  items: *"the sport invented in Springfield, Massachusetts"* → `basketball`)
+  and `lens-eval-association.json` (vignettes implying `grief`, `anger`,
+  `shame`, `lonely`, `relief` without naming them). Ground truth we did not
+  choose ourselves — a prompt we invented would let a plausible-looking readout
+  pass as a correct one. The emotion set is this experiment in miniature.
+  The gate also tracks the *answer* token's rank per block: a correctly-loaded
+  lens shows the concept peaking mid-stack and the answer taking over late, and
+  that crossover is harder to fake than either alone.
+- **GATE B — late-layer identity.** At block 62 the transport spans one residual
+  block, so `‖J−I‖_F/‖I‖_F` should be small and the three readouts — J-lens,
+  plain logit lens, and the model's real output — should converge.
+
+If these fail, the lens is loaded wrong and nothing downstream is valid.
+
+### Storage: its own R2 folder
+
+Experiment 2's activations go to **`pca-jlens-activations/<run_name>/`** in bucket
+`emotion-vector-perspectives` — deliberately a separate top-level folder from
+Experiment 1's `story-activations/`. Different model, different layer-index
+convention, different analysis; a resumed run keys off the prefix and must not
+find incompatible vectors there.
+
+Two differences from Experiment 1's storage defaults, both chosen so activations
+cannot be silently lost on an ephemeral pod:
+
+- `r2_sync = True`, not `"auto"`. `"auto"` keeps activations local whenever the
+  estimated size falls under a threshold, and "silently local" is the failure
+  mode that loses a run to a pod teardown. With `True`, extraction aborts up
+  front on missing credentials instead of after the GPU time is spent.
+- `--set r2_sync=<anything unrecognised>` is an **error**. The shared coercion
+  helper maps any unrecognised string to `False`, so `r2_sync=ture` would quietly
+  disable the mirror; this config refuses to guess.
+
+Phase 0 runs an R2 **preflight** before touching the lens: it uploads a small
+marker to the prefix, confirms its size remotely, downloads it back and compares
+bytes. An env-var check alone would not catch a wrong bucket, a bad endpoint or a
+key without write permission — all of which look fine until the first PUT.
+
+### Quick start (Experiment 2)
+
+```bash
+pip install -r requirements.txt   # installs jlens from its pinned commit
+
+# Phase 0. Lens facts + R2 preflight + config cross-check; no model weights.
+python run.py phase0 --dry-run
+python run.py phase0                    # the real gate: GATE A and GATE B
+
+# Phase 1. No model, no GPU. Coverage first, then the table.
+python run.py phase1 --coverage-only    # emotion set by quadrant; no dataset
+python run.py phase1                    # assemble + gate the stimulus set
+
+# Overrides work as everywhere else.
+python run.py phase0 --set topk=20 --set gate_blocks=evenly_spaced:16
+python run.py phase1 --set emotions=all --set stories_per_emotion=200
+```
+
+`--dry-run` is a gate before the gate. It resolves, downloads and describes the
+lens (6.6 GiB file, ~6.6 GiB host RAM to read) and cross-checks `d_model`, `J`
+shape and fitted block range against the model config — catching a wrong lens
+before ~65 GiB of weights load. Budget ~80 GiB VRAM for bf16 weights; the
+Jacobians stay in host RAM, and transport runs there as a matrix–vector product,
+so no 100 MiB `J_l` is copied to the GPU per readout.
+
+Everything is driven by
+[emotion_pca_jlens/pca_jlens_config.py](emotion_pca_jlens/pca_jlens_config.py).
+
+### Caveats to state up front in any writeup
+
+Not buried at the end. Each one bounds a claim that is otherwise easy to overstate.
+
+1. **"Reportable" means "verbalisable as these single tokens."** The J-lens decodes
+   one vocabulary token at a time, so a state can register as non-reportable simply
+   by not being lexicalised. Absence of a readout is not absence of structure.
+   Phase 0 reports explicitly when an expected word is not a single token, rather
+   than scoring it as a miss.
+2. **A lens reading of "anxious" is a disposition to say "anxious"** — not proof the
+   model is anxious. This is precisely why the behavioural channel carries the
+   weight of any non-reportability claim: for the structural phases, the honest
+   claim is that emotion *representations* are circumplex-organised, not that the
+   model feels along those axes.
+3. **Without Phase 9, a `v_⊥` behavioural effect is not distinguished from workspace
+   re-entry.** Downstream layers could re-derive the concept from the remainder and
+   route it back through the workspace. If the clamp is not run, state that as a
+   limitation plainly — do not gloss it.
 
 ---
 
@@ -356,8 +887,20 @@ credentials exist *and* the estimated size passes `r2_threshold_gib` (5 GiB) —
 tells you plainly which branch it took. `--dry-run` prints the exact estimate before
 you commit any GPU time.
 
-Bucket `emotion-vector-perspectives`; story activations land under
-`story-activations/<run_name>/` (set by `config.r2_root` / `config.r2_prefix`).
+Bucket `emotion-vector-perspectives`, with one top-level folder per experiment
+family (set by `config.r2_root` / `config.r2_prefix`):
+
+| Folder | Experiment | `r2_sync` default |
+|---|---|---|
+| `story-activations/<run_name>/` | 1 — emotion directions (Qwen2.5-32B) | `"auto"` (threshold-gated) |
+| `pca-jlens-activations/<run_name>/` | 2 — PCA + J-lens (Qwen3-32B) | `True` (always) |
+
+Separate folders are not cosmetic: a resumed run keys off its prefix, and the two
+experiments' vectors are not interchangeable (different model, and Experiment 2
+indexes layers by residual block rather than by hidden state). Experiment 2
+defaults to `r2_sync=True` rather than `"auto"` so activations can never be left
+on an ephemeral pod — see
+[Experiment 2 storage](#storage-its-own-r2-folder).
 
 ### Credentials: `r2.env`
 
@@ -610,7 +1153,40 @@ survives changes to shard count or ordering.
 
 ## What comes next (not implemented)
 
-The interfaces exist for these; the experiments do not.
+**Experiment 2, phases 2–9.** Phases 0 and 1 are implemented; each gate decides
+whether the next is worth writing. Phases 6–9 (the functional experiment) are
+specified in [Phases 6–9](#phases-69-from-structure-to-function) and deliberately
+not coded yet — they depend on Phase 6's variance split coming out as expected.
+Planned shape for the structural remainder:
+
+1. **Phase 2 — vectors.** Mean-pool the post-block residual at a target block in
+   the middle third, one vector per emotion; gate on split-half reliability
+   (cosine > 0.9 trustworthy, ~0.6 means more data needed). Halve by *topic*, not
+   by story: 12 stories share one scenario, so a story-level split would leak it
+   across halves and inflate the cosine.
+2. **Phase 3 — PCA.** Mean-centre across emotions *before* PCA — without it PC1 is
+   just overall affect magnitude and the circumplex cannot appear. Gate on the
+   variance table and the PC1–PC2 scatter.
+3. **Phase 4 — lens the PCs.** Read out `+PC` and `−PC` for the top 3–5
+   components. Expect PC3+ to get murky, and report that rather than straining to
+   interpret noise.
+
+Phase 1 chose to select stimuli from
+[`ryancodrai/emotion-probes`](https://huggingface.co/datasets/ryancodrai/emotion-probes)
+rather than generate vignettes from templates. Three reasons, in
+[emotion_pca_jlens/phase1_stimuli.py](emotion_pca_jlens/phase1_stimuli.py): the
+dataset is topic-matched across emotions *by construction*; it has 1,200 stories
+per emotion where a template scheme would give ~40, which the split-half gate
+needs; and its stories are long enough to survive the 50-token pooling offset,
+where 2–4 sentence vignettes (~40–60 tokens) would be **skipped entirely**. That
+last one would have quietly emptied the dataset.
+
+`remove_neutral_pcs` is available but **off** by default: projecting off the top
+neutral-story PCs is right for isolating a single emotion direction (Experiment 1)
+but could strip the very cross-emotion axes Experiment 2 is looking for. It
+belongs as a robustness check, not a default.
+
+**Experiment 1 extensions.** The interfaces exist for these; the experiments do not.
 
 1. **Experiencer binding** — does the emotion representation depend on *who* is
    feeling it: the default assistant, an alternative first-person persona, or a
