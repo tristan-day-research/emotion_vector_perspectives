@@ -101,30 +101,40 @@ head, gain = p6.unembed_parts(readout)
 check("gain recovered from the model, not assumed to be ones",
       gain is not None and np.allclose(gain, g.numpy()))
 probe = rng.normal(size=D)
+read = p6.build_dictionary(readout, probe, BLOCK, 64, head, gain)
+read_no_gain = p6.build_dictionary(readout, probe, BLOCK, 64, head, None)
+check("atoms are read directions, J^T (g * w_t)", read.mode == "read")
+check("dropping the gain changes the atoms materially",
+      not np.allclose(read.atoms[0], read_no_gain.atoms[0], atol=1e-3),
+      f"|cos| {abs(read.atoms[0] @ read_no_gain.atoms[0]):.3f}")
+identity = p6.verify_read_directions(readout, read, BLOCK, np.random.default_rng(5))
+check("the read identity holds: atoms ARE the lens's measurement weights",
+      identity["holds"], f"min corr {identity['min_correlation']:.8f}")
+no_gain_identity = p6.verify_read_directions(
+    readout, read_no_gain, BLOCK, np.random.default_rng(5))
+check("dropping the gain breaks the identity, which is why g is absorbed",
+      not no_gain_identity["holds"],
+      f"min corr {no_gain_identity['min_correlation']:.4f} without g vs "
+      f"{identity['min_correlation']:.4f} with it")
+
+print("\n[3b] write_space: the J^+ ablation is available and labelled")
 transport = p6.factor_transport(readout, BLOCK, PCAJLensConfig().dict_pinv_rcond)
-check("J^+ inverts jlens's own transport, so the orientation is verified",
-      transport.roundtrip_cosine > 0.999, f"cos {transport.roundtrip_cosine:.6f}")
+check("J^+ inverts jlens's own transport", transport.roundtrip_cosine > 0.999,
+      f"cos {transport.roundtrip_cosine:.6f}")
 check("cond(J) and the retained rank are reported",
       transport.condition_number > 1 and 1 <= transport.rank <= D,
-      f"cond {transport.condition_number:.0f}, rank {transport.rank}/{D} at rcond={PCAJLensConfig().dict_pinv_rcond:g}")
+      f"cond {transport.condition_number:.0f}, rank {transport.rank}/{D} "
+      f"at rcond={PCAJLensConfig().dict_pinv_rcond:g}")
 check("the truncation bounds the pullback's amplification",
       transport.effective_condition <= 1.0 / PCAJLensConfig().dict_pinv_rcond + 1e-6,
-      f"effective cond {transport.effective_condition:.1f} <= {1 / PCAJLensConfig().dict_pinv_rcond:.0f}")
-dict_with = p6.build_dictionary(readout, probe, BLOCK, 64, head, gain, transport)
-dict_without = p6.build_dictionary(readout, probe, BLOCK, 64, head, None, transport)
-check("dropping the gain changes the atoms materially",
-      not np.allclose(dict_with.atoms[0], dict_without.atoms[0], atol=1e-3),
-      f"|cos| {abs(dict_with.atoms[0] @ dict_without.atoms[0]):.3f}")
-v_with = p6.verify_dictionary(readout, dict_with, BLOCK, 24)
-v_without = p6.verify_dictionary(readout, dict_without, BLOCK, 24)
-check("with the gain, atoms lens back to their own token",
-      v_with["frac_in_top10"] >= 0.9,
-      f"rank-0 {v_with['frac_rank_zero']:.0%}, top-10 {v_with['frac_in_top10']:.0%}, "
-      f"median {v_with['median_self_rank']:.0f}")
-check("without it, they do so measurably less often",
-      v_without["frac_in_top10"] <= v_with["frac_in_top10"],
-      f"top-10 {v_without['frac_in_top10']:.0%} vs {v_with['frac_in_top10']:.0%}")
-check("the check reports whether the gain was absorbed", v_with["gain_absorbed"] is True)
+      f"effective cond {transport.effective_condition:.1f} <= "
+      f"{1 / PCAJLensConfig().dict_pinv_rcond:.0f}")
+write = p6.build_dictionary(readout, probe, BLOCK, 64, head, gain, transport)
+check("write atoms are labelled as such", write.mode == "write")
+check("write atoms are a different dictionary",
+      float(np.abs(np.sum(read.atoms * write.atoms, axis=1)).max()) < 0.99,
+      f"max |cos(read_t, write_t)| "
+      f"{np.abs(np.sum(read.atoms * write.atoms, axis=1)).max():.3f}")
 
 print("\n[4] end-to-end gate")
 from safetensors.numpy import save_file
@@ -133,16 +143,15 @@ cfg.phase_dir.mkdir(parents=True, exist_ok=True)
 # Emotion vectors built FROM the dictionary: a known sparse nonneg part plus a
 # large remainder, so the reportable fraction has a designed value (~10%).
 labels, rows, order = {}, [], []
-atoms_full = (head * gain[None, :]) @ transport.pullback.T
+# READ atoms, matching what build_dictionary now constructs: the planted component has
+# to be an element of the dictionary for the pursuit to have a recoverable ground truth.
+atoms_full = (head * gain[None, :]) @ np.asarray(
+    torch.as_tensor(J[BLOCK], dtype=torch.float32))
 atoms_full /= np.linalg.norm(atoms_full, axis=1, keepdims=True)
 mean_vec = rng.normal(size=D) * 3.0
 # Planted at a 3:1 remainder:reportable ratio, so the designed reportable fraction is
-# 1/(1+9) = 10% -- the brief's expectation. What had to change with the J^+ pullback is
-# the POOL, not the ratio: the pool is the top-N tokens of v's own lens readout, and a
-# unit-norm J^+ atom has a weaker readout at its own token than a unit-norm J^T atom did
-# (J^+ inflates the pre-image norm), so the planted token sits deeper in v's ranking.
-# 400 of a 2000-token vocabulary reaches 13/16; the real run is 512 of ~150k, a far
-# smaller share, which is a limit of a 2000-token synthetic rather than of the method.
+# 1/(1+9) = 10% -- the brief's expectation. The planted component is a READ atom, i.e.
+# exactly what the dictionary contains, so the pursuit has a recoverable ground truth.
 PLANTED_RATIO = 3.0
 for e in DEFAULT_CIRCUMPLEX_SET:
     own = vocab[e.emotion]
@@ -175,14 +184,26 @@ model_utils.load_tokenizer = lambda *a, **k: tok
 model_utils.load_model = lambda *a, **k: object()
 jlens_lens.LensReadout.build = classmethod(lambda cls, m, t, p: readout)
 
+K_SMALL, K_LARGE = 12, 20   # the paper's 16/25 scaled to this 512-dim synthetic
+# 400 controls: the p-value floors at 1/(n+1), and the gate's alpha is Bonferroni-
+# corrected over 16 emotions (0.0031), so fewer draws could not produce a significant
+# result however strong the planted structure. [4d] checks that the gate SAYS so rather
+# than reporting a null quietly.
+N_CONTROLS = 400
+UNDERPOWERED_CONTROLS = 60
+
 def run(*extra):
+    """One phase-6 invocation. Later `--set` wins, so callers can override the defaults."""
     buf = io.StringIO()
     try:
         with redirect_stdout(buf), redirect_stderr(buf):
             code = p6.main(["--set", "run_name=t6",
                             "--set", f"lens_local_path={lens_file}",
-                            "--set", "dict_pool_size=400", "--set", "n_dict_atoms=12",
-                            "--set", "n_random_controls=8", *extra])
+                            "--set", "dict_pool_size=400",
+                            "--set", f"dict_atom_counts={K_SMALL},{K_LARGE}",
+                            "--set", f"n_dict_atoms={K_SMALL}",
+                            "--set", f"n_random_controls={N_CONTROLS}",
+                            "--set", "pursuit_steps=60", *extra])
     except SystemExit as e:
         code = e.code if isinstance(e.code, int) else 1
         buf.write(f"\nSystemExit: {e}\n")
@@ -191,109 +212,150 @@ def run(*extra):
 code, out = run("--dry-run")
 check("dry-run exits 0 without loading weights", code == 0 and "STEP 3" not in out)
 check("dry-run cross-checks the lens", "the lens covers this block" in out)
+check("dry-run names the read construction, not a pullback",
+      "J^T (g * w_t)" in out and "READS" in out)
 
 code, out = run()
 check("exits 0", code == 0, out.splitlines()[-1] if code else "")
 check("stops at the gate", "Phase 7 has not run" in out)
 rec = json.loads((cfg.phase_dir / "phase6_gate.json").read_text())
-check("dictionary check ran and passed",
-      rec["dictionary"]["frac_in_top10"] >= 0.9,
-      f"top-10 {rec['dictionary']['frac_in_top10']:.0%}")
+
+print("\n  the read identity, which replaced the self-token check")
+check("the read identity is recorded and holds", rec["read_identity"]["holds"],
+      f"min corr {rec['read_identity']['min_correlation']:.8f}")
+check("atom mode is recorded as read", rec["atom_mode"] == "read")
+check("the removed self-token check leaves no trace in the output",
+      "lens back to their own token" not in out
+      and "own token at rank 0" not in out)
+check("the gate says why there is no such check",
+      "no 'does lensing an atom return its own token' check" in out.lower()
+      or "NO 'does lensing an atom return its own token' check" in out)
+
+print("\n  both k are reported")
 per = {r["emotion"]: r for r in rec["per_emotion"]}
-fr = np.array([r["frac_reportable"] for r in rec["per_emotion"]])
+check("every emotion has a result at every k",
+      all(set(r["per_k"]) == {str(K_SMALL), str(K_LARGE)} for r in rec["per_emotion"]))
+check("reported_k and saved_k are both recorded",
+      rec["reported_k"] == [K_SMALL, K_LARGE] and rec["saved_k"] == K_SMALL)
+small = np.array([r["per_k"][str(K_SMALL)]["frac_reportable"] for r in rec["per_emotion"]])
+large = np.array([r["per_k"][str(K_LARGE)]["frac_reportable"] for r in rec["per_emotion"]])
+check("the fraction rises with k, as a union of cones must",
+      bool((large >= small - 1e-9).all()),
+      f"median {np.median(small):.1%} at k={K_SMALL} -> {np.median(large):.1%} "
+      f"at k={K_LARGE}")
+check("both k appear in the printed table",
+      f"frac k={K_SMALL}" in out and f"frac k={K_LARGE}" in out)
 check("reportable fraction is small, as the brief expects",
-      0.02 < np.median(fr) < 0.35, f"median {np.median(fr):.1%}")
-# The planted truth is 10% reportable; the pursuit measures that plus whatever it
-# absorbs from the remainder by chance, which the control quantifies. So the claim
-# to test is that the excess over chance is real and in the right direction -- and
-# that chance is well above k/d, because the pool is adaptively chosen.
-check("above the chance baseline, with the excess in the planted range",
-      np.median(fr) > rec["random_control"]["p95"],
-      f"median {np.median(fr):.1%} vs chance mean "
-      f"{rec['random_control']['mean']:.1%} / p95 {rec['random_control']['p95']:.1%}")
+      0.02 < np.median(small) < 0.35, f"median {np.median(small):.1%}")
+
+print("\n  the gate is the random null")
+controls = rec["random_control"]
+check("a null is measured at every k",
+      set(controls) == {str(K_SMALL), str(K_LARGE)})
+check("the null draws are recorded as a count, not dumped as 120 floats",
+      controls[str(K_SMALL)]["n"] == N_CONTROLS
+      and "fractions" not in controls[str(K_SMALL)])
 check("chance is far above k/d, so it cannot be replaced by arithmetic",
-      rec["random_control"]["mean"] > 2 * 12 / D,
-      f"control {rec['random_control']['mean']:.1%} vs k/d = {12 / D:.1%} "
+      controls[str(K_SMALL)]["mean"] > 2 * K_SMALL / D,
+      f"control {controls[str(K_SMALL)]['mean']:.1%} vs k/d = {K_SMALL / D:.1%} "
       "(the pool is chosen from the direction's own top tokens)")
-check("the design is not in the degenerate regime",
-      rec["random_control"]["mean"] <= p6.DEGENERATE_CONTROL_FRACTION
-      and "DEGENERATE" not in out)
+check("every emotion has a p-value at every k",
+      all(r["per_k"][k].get("p_value") is not None
+          for r in rec["per_emotion"] for k in (str(K_SMALL), str(K_LARGE))))
+p_small = np.array([r["per_k"][str(K_SMALL)]["p_value"] for r in rec["per_emotion"]])
+check("the planted structure beats the null for most emotions",
+      float((p_small <= 1.0 / (1 + N_CONTROLS) + 1e-12).mean()) > 0.5,
+      f"{int((p_small <= 1.0 / (1 + N_CONTROLS) + 1e-12).sum())}/{len(p_small)} at the "
+      f"p floor {1 / (1 + N_CONTROLS):.4f}")
+check("the corrected alpha and the p floor are both recorded",
+      abs(rec["gate"]["alpha_bonferroni"] - p6.GATE_ALPHA / len(rec["per_emotion"])) < 1e-12
+      and abs(rec["gate"]["p_value_floor"] - 1 / (1 + N_CONTROLS)) < 1e-12)
+check("the p floor clears the corrected alpha at this control count",
+      rec["gate"]["p_value_floor"] < rec["gate"]["alpha_bonferroni"],
+      f"floor {rec['gate']['p_value_floor']:.4f} < alpha "
+      f"{rec['gate']['alpha_bonferroni']:.4f}")
+check("emotions are recorded as beating the null",
+      sum(len(v) for v in rec["gate"]["beat_null"].values()) > 0,
+      str({k: len(v) for k, v in rec["gate"]["beat_null"].items()}))
+check("the printed table marks significance and names the threshold",
+      "significance: p <" in out and "Bonferroni" in out)
+
+print("\n  the cones caveat is printed, not left to be remembered")
+check("the verdict states the union-of-cones fact",
+      "UNION OF CONES" in out and "not a linear subspace" in out.lower())
+check("it says what v_perp does NOT mean",
+      "never means 'intrinsically unverbalizable'" in out
+      or "NOT CAPTURED BY THIS SPARSE APPROXIMATION" in out)
+check("the unsupported sentence is named explicitly",
+      "cannot verbalise this component" in out)
+check("the caveat travels in the record too",
+      "unverbalizable" in rec.get("v_remainder_means", ""))
+
 check("v_J + v_perp fractions roughly partition the variance",
-      all(abs(r["frac_reportable"] + r["frac_remainder"] - 1) < 0.25
-          for r in rec["per_emotion"]),
-      f"max |sum-1| {max(abs(r['frac_reportable']+r['frac_remainder']-1) for r in rec['per_emotion']):.3f}")
-check("the two parts are near-orthogonal", max(abs(r["cos_parts"]) for r in rec["per_emotion"]) < 0.25,
-      f"max |cos| {max(abs(r['cos_parts']) for r in rec['per_emotion']):.3f}")
+      all(abs(r["per_k"][str(K_SMALL)]["frac_reportable"]
+              + r["per_k"][str(K_SMALL)]["frac_remainder"] - 1) < 0.25
+          for r in rec["per_emotion"]))
+check("the two parts are near-orthogonal",
+      max(abs(r["per_k"][str(K_SMALL)]["cos_parts"]) for r in rec["per_emotion"]) < 0.25)
 print(f"    planted reportable fraction: {1 / (1 + PLANTED_RATIO ** 2):.0%} by construction")
-# A MAJORITY, not 14/16. The transpose construction hit 14/16 with a 64-atom pool; the
-# J^+ pullback reaches 10/16 with a 400-atom pool on the same planted 10%. Both effects
-# push the same way: a correct atom's own-token readout is weaker per unit norm, so the
-# planted token sits deeper in v's ranking (needing the wider pool), and selecting 12
-# atoms from 400 rather than 64 is a harder problem. Expect own_word_atom_rank to be
-# filled in for fewer emotions on the real run than the transpose version showed.
-check("v_J decomposes into the emotion's own token for a majority",
+check("v_J selects the emotion's own token for a majority",
       sum(1 for r in rec["per_emotion"] if r["own_word_atom_rank"] is not None) >= 9,
-      f"{sum(1 for r in rec['per_emotion'] if r['own_word_atom_rank'] is not None)}/16 emotions")
-check("random control measured and reported",
-      rec["random_control"]["n"] == 8 and rec["random_control"]["mean"] > 0,
-      f"chance {rec['random_control']['mean']:.1%}")
-check("gate prints the chance baseline as the denominator",
-      "Chance baseline" in out and "x chance" in out)
-check("verdict reports the atom-validity check",
-      "atoms lens to their token" in out and "PASS" in out)
-check("verdict reports cond(J) and the retained rank",
-      "cond(J)" in out and "rank" in out)
-check("the gate prints the per-atom self-ranks",
-      "per atom: rank of its own token" in out)
-check("the round-trip against jlens's transport is printed",
-      "round-trip cos" in out)
-check("per-atom detail is in the record",
-      len(rec["dictionary"]["per_atom"]) == rec["dictionary"]["checked"]
-      and all("self_top1" in e for e in rec["dictionary"]["per_atom"]))
-check("dictionary_valid is at the top level for phases 7 and 8",
-      rec["dictionary_valid"] is True)
-check("the transport summary is recorded",
-      {"condition_number", "rank", "rcond", "roundtrip_cosine"}
-      <= set(rec["transport"]))
+      f"{sum(1 for r in rec['per_emotion'] if r['own_word_atom_rank'] is not None)}/16 "
+      "emotions (reported, not gated)")
+check("coherence is recorded", "max" in rec["coherence"])
+check("no J^+ factorisation happened on the read path", rec.get("transport") is None)
+
+print("\n[4d] too few controls to resolve the corrected alpha is SAID, not hidden")
+code_u, out_u = run("--set", f"n_random_controls={UNDERPOWERED_CONTROLS}")
+rec_u = json.loads((cfg.phase_dir / "phase6_gate.json").read_text())
+check("the p floor cannot reach the corrected alpha",
+      rec_u["gate"]["p_value_floor"] > rec_u["gate"]["alpha_bonferroni"],
+      f"floor {rec_u['gate']['p_value_floor']:.4f} > alpha "
+      f"{rec_u['gate']['alpha_bonferroni']:.4f}")
+check("the gate prints TOO COARSE rather than reporting a quiet null",
+      "TOO COARSE" in out_u)
+check("nothing is recorded as beating the null, because nothing could",
+      sum(len(v) for v in rec_u["gate"]["beat_null"].values()) == 0)
+check("and it exits 3 rather than passing an untestable run",
+      code_u == 3, f"code={code_u}")
 
 print("\n[4b] the degenerate regime is called out, not quietly passed")
-code, outd = run("--set", "n_dict_atoms=200", "--set", "dict_pool_size=450")
+code, outd = run("--set", "dict_atom_counts=200", "--set", "n_dict_atoms=200",
+                 "--set", "dict_pool_size=450", "--set", "n_random_controls=20")
 recd = json.loads((cfg.phase_dir / "phase6_gate.json").read_text())
-check("a near-spanning pool drives the control high",
-      recd["random_control"]["mean"] > p6.DEGENERATE_CONTROL_FRACTION,
-      f"control {recd['random_control']['mean']:.0%}")
+check("a near-spanning pool drives the null high",
+      recd["random_control"]["200"]["mean"] > p6.DEGENERATE_CONTROL_FRACTION,
+      f"null {recd['random_control']['200']['mean']:.0%}")
 check("the gate refuses to let any fraction be read",
-      "DEGENERATE" in outd and "uninterpretable" in outd)
-print("\n[4c] a failed atom-validity check withholds the fraction and exits 3")
-_real_valid = p6.dictionary_is_valid
-p6.dictionary_is_valid = lambda check: False
-try:
-    code_bad, out_bad = run()
-finally:
-    p6.dictionary_is_valid = _real_valid
-rec_bad = json.loads((cfg.phase_dir / "phase6_gate.json").read_text())
-check("exits 3, so phase 7 cannot be chained onto it", code_bad == 3, f"code={code_bad}")
-check("the word WITHHELD appears where the table would be", "WITHHELD" in out_bad)
-check("no reportable percentage is printed anywhere",
-      "frac v_J" not in out_bad and "x chance" not in out_bad)
-check("the verdict says the check gates everything above it",
-      "atom-validity check gates everything above it" in out_bad)
-check("dict_pinv_rcond is named as the knob", "dict_pinv_rcond" in out_bad)
-check("the rcond sweep is printed with rank, coherence and validity",
-      "eff cond" in out_bad and "coh max" in out_bad
-      and len(rec_bad["rcond_sweep"]) == len(p6.RCOND_SWEEP))
-check("dictionary_valid=false is recorded for phases 7 and 8",
-      rec_bad["dictionary_valid"] is False)
-check("the split is still written, for diagnosis",
-      cfg.decomposition_path.exists() and "diagnosis only" in out_bad)
-from safetensors import safe_open as _safe_open
-with _safe_open(str(cfg.decomposition_path), framework="numpy") as _f:
-    check("dictionary_valid travels with the tensors too",
-          _f.metadata().get("dictionary_valid") == "False",
-          str(_f.metadata().get("dictionary_valid")))
-check("coherence is recorded even on a failure", "max" in rec_bad["coherence"])
+      "DEGENERATE" in outd and "interpretable" in outd)
 
-code, out = run()   # restore the good artefacts for [5]
+print("\n[4c] write_space is available, labelled, and refused by phases 7 and 8")
+code_w, out_w = run("--set", "write_space=true",
+                    "--set", "n_random_controls=20")
+rec_w = json.loads((cfg.phase_dir / "phase6_gate.json").read_text())
+check("it runs", code_w in (0, 3), f"code={code_w}")
+check("atoms are the J^+ ones", rec_w["atom_mode"] == "write")
+check("every screen of output says so",
+      out_w.count("write_space") >= 2 and "ABLATION" in out_w)
+check("the verdict disclaims reportability",
+      "not a statement about reportability" in out_w
+      or "nothing here is a statement about reportability" in out_w)
+check("cond(J) and the retained rank are printed, since rcond now matters",
+      "cond(J)" in out_w and "rank kept" in out_w)
+check("write_space is flagged in the sidecar for downstream phases",
+      rec_w["write_space"] is True)
+import emotion_pca_jlens.phase7_channels as _p7
+_refused = False
+try:
+    _p7.read_decomposition(cfg)
+except SystemExit as _e:
+    _refused, _msg = True, str(_e)
+check("phase 7 refuses a write_space decomposition", _refused,
+      _msg.splitlines()[0] if _refused else "")
+check("the refusal explains that frac_reportable is not about reportability there",
+      _refused and "reportability" in _msg)
+
+code, out = run("--set", "n_random_controls=20")   # restore read-space artefacts for [5]
 
 print("\n[5] artefacts Phase 8 will steer with")
 from safetensors.numpy import load_file

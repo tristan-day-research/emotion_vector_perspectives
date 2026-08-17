@@ -65,8 +65,18 @@ print("\n[3] mechanical scorers: countable, and blind to affect by construction"
 check("risk: certain option scores 1", cp.score_risk("A")["score"] == 1.0)
 check("risk: gamble scores 0", cp.score_risk("I'll take B.")["score"] == 0.0)
 check("risk: unparseable is None, not a guess", cp.score_risk("hmm")["score"] is None)
-check("risk: reads the FIRST choice, not the last mention",
-      cp.score_risk("A is safer than B, so A.")["score"] == 1.0)
+# This assertion used to read: "reads the FIRST choice, not the last mention", with
+# "A is safer than B, so A." scored 1.0. That WAS the bug -- with a reasoning block in
+# front of the answer, the first standalone letter is whichever one the model mentioned
+# while thinking. Two distinct letters is now INVALID rather than resolved by position.
+check("risk: two distinct letters is INVALID, not resolved by position",
+      not cp.score_risk("A is safer than B, so A.")["valid"])
+check("risk: the same letter repeated is still unambiguous",
+      cp.score_risk("A. A is the certain option.")["score"] == 1.0)
+check("risk: letters inside a reasoning block are ignored",
+      cp.score_risk("<think>A or B? A looks safer</think>\nB")["score"] == 0.0)
+check("risk: a truncated reasoning trace is INVALID, which is the whole fix",
+      not cp.score_risk("<think>Let me weigh A against", truncated=True)["valid"])
 long_answer = ("Flip the first switch on for ten minutes then off. " * 4
                + "Therefore the warm bulb is the first switch. That is the answer.")
 check("persistence: committed long answer scores 1",
@@ -75,8 +85,13 @@ check("persistence: giving up scores 0",
       cp.score_persistence("I'm not sure this is solvable.")["score"] == 0.0)
 h = cp.score_hedging("It might be around 1986, though possibly I am not certain.")
 check("hedging: counts hedges as a rate per 100 words", h["score"] > 20, f"{h['score']:.1f}")
-check("hedging: a direct answer scores ~0",
-      cp.score_hedging("1986.")["score"] == 0.0)
+# "Answer directly" makes "1986." the ideal response, so it must SCORE (0 hedges), not
+# be rejected as too short -- otherwise perfect compliance would read as 100% invalid.
+check("hedging: the ideal one-word answer scores 0 and stays valid",
+      cp.score_hedging("1986.")["score"] == 0.0
+      and cp.score_hedging("1986.")["valid"])
+check("hedging: and it says the rate is high-variance at that length",
+      "high-variance" in cp.score_hedging("1986.")["detail"])
 check("hedging is a RATE, so length alone cannot move it",
       abs(cp.score_hedging("It might be x. " * 2)["score"]
           - cp.score_hedging("It might be x. " * 8)["score"]) < 1e-9)
@@ -188,14 +203,15 @@ check("flags a family with no baseline range",
 check("does not flag one with range", r["per_family"]["hedging"]["has_range"] is True)
 check("unscored input handled", p7.dynamic_range([{"family": "x", "score": None}])["scored"] is False)
 
-print("\n[6b] Phase 6's atom-validity gate is enforced, not advisory")
+print("\n[6b] a write_space decomposition is refused, not silently ranked")
 _tmp6 = Path(tempfile.mkdtemp()); paths.OUTPUTS_DIR = _tmp6 / "outputs"
 _cfg6 = PCAJLensConfig(run_name="t7guard")
 _cfg6.phase_dir.mkdir(parents=True, exist_ok=True)
+_msg = ""
 for _label, _payload, _want in (
-    ("invalid", {**decomp, "dictionary_valid": False}, True),
-    ("absent (a pre-check run)", dict(decomp), True),
-    ("valid", {**decomp, "dictionary_valid": True}, False),
+    ("write_space=true", {**decomp, "write_space": True}, True),
+    ("write_space=false", {**decomp, "write_space": False}, False),
+    ("absent (a read-space run)", dict(decomp), False),
 ):
     _cfg6.decomposition_meta_path.write_text(json.dumps(_payload))
     try:
@@ -204,10 +220,39 @@ for _label, _payload, _want in (
     except SystemExit as _e:
         _raised = True
         _msg = str(_e)
-    check(f"dictionary_valid {_label}: {'refused' if _want else 'accepted'}",
-          _raised == _want, _msg.splitlines()[0] if _raised else "")
-check("the refusal explains why frac_reportable cannot be ranked on",
-      "frac_reportable" in _msg and "mislabelled" in _msg)
+    check(f"{_label}: {'refused' if _want else 'accepted'}", _raised == _want,
+          _msg.splitlines()[0] if _raised else "")
+check("the refusal says why frac_reportable is not about reportability there",
+      "reportability" in _msg and "WRITE" in _msg)
+
+print("\n[6c] emotions are ranked at Phase 6's SAVED k, with its p-value")
+_multi = {
+    **decomp,
+    "saved_k": 16,
+    "gate": {"alpha_bonferroni": 0.05 / 4},
+    "random_control": {"16": {"mean": 0.02}, "25": {"mean": 0.05}},
+    "per_emotion": [
+        # k=16 is significant, k=25 is not: reading the wrong k flips the verdict.
+        {"emotion": "anxious", "own_word_atom_rank": 0,
+         "per_k": {"16": {"frac_reportable": 0.10, "p_value": 0.001},
+                   "25": {"frac_reportable": 0.30, "p_value": 0.9}}},
+        {"emotion": "calm", "own_word_atom_rank": 1,
+         "per_k": {"16": {"frac_reportable": 0.04, "p_value": 0.9},
+                   "25": {"frac_reportable": 0.12, "p_value": 0.001}}},
+    ],
+}
+_by = {c.emotion: c for c in p7.rank_candidates(_multi, PCAJLensConfig())}
+check("the saved k's fraction is the one reported",
+      _by["anxious"].frac_reportable == 0.10, f"{_by['anxious'].frac_reportable}")
+check("a significant p-value at the saved k is usable", _by["anxious"].usable)
+check("a non-significant one is not, even though k=25 would have passed",
+      not _by["calm"].usable and "random null" in _by["calm"].reasons[0],
+      _by["calm"].reasons[0])
+check("the p-value gates in preference to the 3x-the-null fallback",
+      "p=" in _by["calm"].reasons[0])
+_legacy = p7.rank_candidates(decomp, PCAJLensConfig())
+check("a pre-multi-k sidecar still ranks, via the 3x fallback",
+      len(_legacy) == 4 and any(c.usable for c in _legacy))
 
 print("\n[7] --dry-run: gate output with no weights and no judge")
 tmp = Path(tempfile.mkdtemp()); paths.OUTPUTS_DIR = tmp / "outputs"

@@ -507,32 +507,50 @@ lens can express as tokens: a **sparse nonnegative** combination of the top-k
 (k ≈ 16–25) lens dictionary directions reconstructing `v` by gradient pursuit. The
 remainder is `v_⊥ = v − v_J`. Produce norm-matched `v`, `v_J`, `v_⊥`, and a
 matched-norm random direction as control.
-*Gate:* per-emotion variance fraction in `v_J` vs `v_⊥` — `v_J` should be **small,
-~5–15%**; if it comes out large, the decomposition or the lens is wrong, not the
-theory. Plus the top tokens `v_J` decomposes into, which should read as the emotion.
+*Gate:* per-emotion reconstruction fraction **against matched-norm random
+directions** — ratio and Monte-Carlo p-value, Bonferroni-corrected across emotions,
+at both `k = 16` and `k = 25`. That comparison is the only claim the method supports:
+`k` atoms from a large pool reconstruct some share of *any* direction, so a fraction
+without its null measures the pursuit's degrees of freedom. `v_J` should also be
+**small, ~5–15%**; if it comes out large, the decomposition or the lens is wrong, not
+the theory. Plus the top tokens `v_J` decomposes into, which should read as the
+emotion — reported, not gated.
 
-> **Open design question, now settled — and this paragraph's original answer was
-> wrong.** The `jlens` API has no "dictionary" — a fitted lens is a per-layer matrix
-> `J_ℓ`, and `JacobianLens` exposes only `jacobians`, `transport` and `apply`
-> (verified against the pinned commit). The dictionary has to be *constructed* as the
-> pullback of unembedding rows through the transport, and this file previously said
-> `d_t ≈ J_ℓᵀ w_t`. That is the wrong pullback. The lens logit is
-> `⟨w_t, g ⊙ (J h / rms(J h))⟩ = ⟨g ⊙ w_t, J h⟩ / rms(J h)`, and because the
-> normalisation is by `rms(J h)` rather than `‖h‖`, maximising it needs `J h ∝ g ⊙ w_t`
-> — so `d_t = J_ℓ⁻¹ (g ⊙ w_t)`. The transpose equals the inverse only for an
-> orthogonal `J_ℓ`, and an averaged Jacobian is not orthogonal; the transpose version
-> failed the atom-validity check, which is how the error surfaced.
+> **Open design question, now settled.** The `jlens` API has no "dictionary" — a
+> fitted lens is a per-layer matrix `J_ℓ`, and `JacobianLens` exposes only `jacobians`,
+> `transport` and `apply` (verified against the pinned commit). The dictionary has to be
+> *constructed*, and the atom for token `t` is `d_t = J_ℓᵀ (g ⊙ w_t)`, unit-normalised —
+> as this paragraph originally said, for a better reason than it gave. The lens logit is
 >
-> Phase 6 therefore inverts `J_ℓ` by SVD with singular values below
-> `dict_pinv_rcond · s_max` truncated (an exact inverse would amplify the directions
-> `J_ℓ` nearly annihilates by `1/s` and let numerical noise become the atom), factored
-> once per run and applied to the whole candidate pool at once. The final RMSNorm's
-> learned gain `g` is absorbed exactly; its input-dependent `1/rms` is a positive
-> scalar and cannot reorder logits. The gate prints `cond(J_ℓ)`, the retained rank, and
-> per atom whether lensing it returns its own token as top-1 plus the median rank — and
-> **refuses to report a reportable-variance fraction unless that check passes**, since
-> a variance share out of mislabelled directions is not a measurement of
-> reportability. Reconstruction error is reported alongside the split.
+> ```
+> logit_t = ⟨w_t, g ⊙ (J h / rms(J h))⟩ = ⟨g ⊙ w_t, J h⟩ / rms(J h) = ⟨Jᵀ u_t, h⟩ / rms(J h)
+> ```
+>
+> so `Jᵀ u_t` **is** the measurement weight vector — the direction the lens *reads*
+> token `t` with — and `1/rms(J h)` is a positive scalar common to every token. Anything
+> orthogonal to every `Jᵀ u_t` moves no logit at all, which makes `span{Jᵀ u_t}` the
+> verbalizable subspace by construction. **Reportability is a reading question.**
+>
+> `J_ℓ⁻¹ (g ⊙ w_t)` is a different direction: the one that most efficiently *writes*
+> token `t`. It is a real question, kept runnable behind `--set write_space=true` as a
+> labelled ablation, and it is not this one. The RMSNorm's learned gain `g` is absorbed
+> exactly; its input-dependent `1/rms` cannot reorder logits.
+>
+> There is deliberately **no "does lensing an atom return its own token" check** — that
+> is a property of write directions, and read directions have no reason to satisfy it.
+> What is checked instead is the identity above, exactly: the atoms must reproduce the
+> lens's own logits up to the positive scalar, which confirms `J_ℓ`'s stored orientation
+> rather than assuming it. The **gate** is the reconstruction fraction against
+> `n_random_controls` matched-norm random directions — ratio and Monte-Carlo p-value per
+> emotion, Bonferroni-corrected across emotions — reported at both `k = 16` and `k = 25`.
+> Reconstruction error and atom coherence are reported alongside.
+>
+> **What `v_⊥` is not.** Under sparse nonnegative coding the reconstructable set is
+> `{Σ cᵢdᵢ : cᵢ ≥ 0, |support| ≤ k}` — a *union of cones*, not a linear subspace. So
+> `v_⊥` means "not captured by this sparse approximation, at this `k`, from this pool",
+> never "intrinsically unverbalizable". Both `k` are printed side by side because the
+> boundary moves with `k`. A sentence of the form "the model cannot verbalise this
+> component" is not supported by this stage.
 
 **Phase 7 — build two measurement channels, kept strictly apart.** *(GPU · GATE)*
 Pick 2–3 emotions with clean Phase 6 decompositions; an arousal-heavy negative one
@@ -593,6 +611,41 @@ verification before trusting any behavioural number from this phase.
 *Decisive cell:* `v_⊥`, J-space clamped, behaviour channel. If behaviour still
 shifts while report is suppressed, that is an emotional state steering action
 without being reportable.
+
+> Three decisions in
+> [emotion_pca_jlens/phase9_clamp.py](emotion_pca_jlens/phase9_clamp.py), all forced by
+> the brief rather than chosen.
+>
+> **What gets clamped.** The lens reads token `t` at block `ℓ` with `J_ℓᵀ(g ⊙ w_t)`
+> (Phase 6), so the emotion's J-space at that block is the span of those directions over
+> its token set — the word's own single-token variants plus the atoms `v_J` selected —
+> and the clamp is `h ← h − A_ℓ(A_ℓᵀh) + A_ℓ c_clean`. A **different subspace per
+> block**, because each block has its own `J_ℓ`. Every fitted block by default; a run
+> with a narrower `clamp_blocks` is marked NOT DECISIVE, since a partial clamp cannot
+> tell "the effect bypassed the workspace" from "it re-entered at block 41".
+>
+> **What "clean-pass" means once the tokens diverge.** A steered model writes different
+> text, so there is no position-by-position correspondence to clamp *to*. Clamping only
+> the prompt leaves generation unclamped; clamping generated position `i` to the clean
+> run's position `i` compares different sentences. So the two runs advance in lockstep,
+> **one decode step at a time, with the clean run following the steered run's token** —
+> its coordinates then answer "on this exact prefix, without the perturbation". The cost
+> is two forward passes per step and one prompt at a time, and the clamp is registered
+> *after* the steering hook so that at the one block carrying both, the residual held
+> fixed is the post-steering one.
+>
+> **The verification gates the result.** Three checks print first: the clamp must be the
+> identity at `α = 0` (numerically, per block and position — text equality is reported
+> with the bf16 caveat rather than required); it must remove at least
+> `clamp_min_report_suppression` of the report lift that steering with `v` produces; and
+> it must leave unrelated J-space intact, measured as the rank correlation of the lens
+> readout over control tokens outside the clamped set, plus the share of the clean
+> residual's variance the subspace holds. Fail any and the decisive cell prints but is
+> marked not interpretable, with which check failed naming the fix.
+>
+> Phase 9 also refuses to run when Phase 8's record shows no undegraded `v_⊥`
+> behavioural movement above its random control: it is a control for a result, and a
+> control for nothing costs hours to confirm a null Phase 8 already reported.
 
 ### Practical notes for Phases 6–9
 
@@ -774,6 +827,11 @@ Not buried at the end. Each one bounds a claim that is otherwise easy to oversta
    re-entry.** Downstream layers could re-derive the concept from the remainder and
    route it back through the workspace. If the clamp is not run, state that as a
    limitation plainly — do not gloss it.
+4. **`v_⊥` is defined by an approximation, not by the model.** It is the residual of a
+   `k`-sparse nonnegative code, whose reachable set is a union of cones rather than a
+   linear subspace, so it means "missed at this `k`, from this pool" — never
+   "intrinsically unverbalizable". Raising `k` moves the boundary and could move any
+   result that rests on it.
 
 ---
 
@@ -1057,6 +1115,167 @@ projected and unprojected vectors.
 Outputs: `metrics_by_layer.csv`, `metrics_by_emotion.csv`, `stability_bootstrap.csv`,
 `stability_split_half.csv`, `confusion_*.csv`, `emotion_cosine_layer*.csv`,
 `summary.json`, and four plots.
+
+---
+
+## Phase 4 reads out in Chinese, and what that did to GATE A
+
+This is the largest interpretive correction the project has made, so it is written up
+here rather than left in a notebook. The full analysis is
+[`analysis/results_notebook.ipynb`](analysis/results_notebook.ipynb) sections 5e–5i,
+exported to [`analysis/RESULTS.md`](analysis/RESULTS.md), with an audit trail for
+independent checking in [`analysis/VERIFICATION.md`](analysis/VERIFICATION.md).
+
+### The observation
+
+Between 42% and 55% of the top-12 tokens in every Phase 4 lens readout are CJK script,
+against 23–32% Latin. The stimuli are English stories, the anchors are English emotion
+words, the probe set is English — and the lens reads the directions out in Chinese.
+
+The obvious explanation is "Qwen3-32B is a Chinese model." That is not sufficient:
+**96–97% of the Latin tokens in these readouts are whole words** (` failed`, ` sorrow`,
+` panic`), not subword fragments. The lens is not being forced into Chinese because
+English tokenises badly; it selects dense whole words when it selects Latin at all, and
+still prefers Chinese for content. Why the block-31 readout has that preference is **not
+diagnosed here** and should not be asserted.
+
+### Two confounds, not one
+
+GATE A asks: *does the emotion's own English word appear in its vector's top-12 lens
+tokens?* It scored 0/14 and 5/114. Two independent things could produce that:
+
+1. **Script** — the direction names its concept in Chinese, so no English lemma can
+   reach the top-12 however good the direction is.
+2. **Exact-lemma matching** — the readout offers ` sorrow` where the test demands
+   ` sad`. A near-synonym is not a hit.
+
+Translating the output only addresses the first. Both were scored separately.
+
+### Why GATE A failed while GATE B passed
+
+The resolution needs no translation data at all, and it is the single most useful
+sentence in this section. The a-priori `+valence` axis separates the pleasant from the
+unpleasant anchors **perfectly** — AUROC 1.00, no overlap — while ranking its best
+English probe word at **1,927 out of 151,936**, with zero probes inside GATE A's top-12
+window. Same story for `+arousal` at AUROC 0.96.
+
+So the two Phase 4 tests were never measuring the same thing:
+
+| test | kind | effect of a foreign-language readout |
+| --- | --- | --- |
+| **GATE A** | absolute containment — "is the lemma in the top 12?" | destroyed; the top-12 fills with Chinese first |
+| **GATE B / AUROC** | relative ordering within a fixed English probe set | immune; burying all 14 probes by a common factor leaves the comparison intact |
+
+**The direction knows about valence in English. It just does not say it in English.**
+That one claim explains the whole pattern.
+
+### Re-scoring GATE A in three tiers
+
+Same top-12 containment rule, varying only what counts as the emotion's name:
+
+| tier | what counts | 16 run | 171 run |
+| --- | --- | --- | --- |
+| T1 | exact English lemma (GATE A as specified) | 0% | 3% |
+| T2 | English near-synonym | 6% | 8% |
+| T3 | Chinese translation | **62%** | **25%** |
+
+The objection is immediate: T3 gives each emotion 3–5 candidates where T1 gives one
+lemma, so of course the rate rises. A permutation null answers exactly that — it keeps
+every list intact, same contents and same length, and only shuffles **which list scores
+which emotion's readout**. Chance under that null is 10.9% and 1.7% against observed
+62.5% and 25.1%, p = 0.0005 over 2000 permutations. Scoring each readout against every
+*other* emotion's list agrees (7.9%, 1.6%). The lists are not doing the work.
+
+The translation table is [`analysis/zh_en_glossary.py`](analysis/zh_en_glossary.py). It
+is **hand-written and is the only non-derived input in the analysis.** It was written
+from the 171 emotion words alone and saved before any matching ran; matching is exact
+set membership, never fuzzy; and the full table is printed in `RESULTS.md` so its
+generosity can be audited and re-scored. The module docstring records the
+pre-commitment protocol and discloses what the author had already seen.
+
+### A denominator problem worth knowing about independently
+
+Checked against the real Qwen3-32B tokenizer — cached locally at 11 MB, **no model
+weights** — only 59% of the Chinese candidates are single tokens, and a multi-token
+candidate can never appear in a top-12 *token* list. Restricting to the Chinese-testable
+set moves the 171-run rate from 25.1% to 28.3%.
+
+The more important finding has nothing to do with translation: **GATE A structurally
+could not score 57 of the 171 emotions (33%)**, because their English lemma is not a
+single token — and 43 of those 57 *do* have a single-token Chinese form. Their exclusion
+is a fact about English orthography, not about their directions. Any GATE A rate should
+carry the denominator it was computed on.
+
+### What this changes, and what it does not
+
+Changed: the readable summary of Phase 4. "The lens cannot name emotion directions"
+becomes "the lens names them, in Chinese, and the gate asked in English."
+
+**Not** changed, and none of these may be softened on the strength of the above:
+
+* **Phases 1–3 are untouched.** Stimuli, emotion vectors, split-half reliability, PCA,
+  circumplex recovery and the cross-run PC correspondence are computed from activations.
+  The lens is not involved at any point in them.
+* **The recorded GATE A verdict is still FAILED.** The re-scoring depends on a
+  hand-written translation table, so it is reported alongside the gate, never
+  substituted for it.
+* **This is containment, not rank.** `phase4_readouts.csv` persisted only the top 12
+  tokens per direction, so there is no Chinese analogue of `own_word_rank`.
+* The under-converged 80-prompt lens, the effective dimensionality of 9.8, and PC1's
+  affect-presence contamination on the 171 run are all exactly as they were.
+
+Separately, and **not** because of anything above, Phase 6 was re-run in **read space**
+and its verdict reversed. The lens score for token `t` is `u_tᵀ J h`, which regroups as
+`(Jᵀu_t)ᵀ h` — so the direction the readout is linear in is `Jᵀu_t`, and that is what
+`atom_mode: read` builds. The earlier gate asked "does lensing an atom return its own
+token?", which is a **write**-direction property (`J⁺u_t`) that a read dictionary has no
+reason to satisfy; the write-space run passes it 24/24, which is the tell. The read
+construction is validated instead by a score-identity check holding at r > 0.9999.
+
+The result is real, above chance, and small: **3.0%** and **2.3%** readable at k = 16
+against random-direction controls of 0.65% and 0.64% (n = 500) — ratios of **4.6×** and
+**3.6×**. Raising k from 16 to 25 moves the fraction by at most ~1e-3, so the ceiling is a
+property of the pool and the vector, not the sparsity budget. Three caveats travel with
+it: 30.9% of atoms exceed the 0.5 interchangeability threshold, so specific token
+attributions are weak; "remainder" means outside the k-sparse *nonnegative* span of this
+pool at this k — a union of cones, not a subspace — and so is **not** evidence of
+anything being intrinsically unverbalizable; and `own_word_atom_rank` is null for
+essentially every emotion, so the readable part is not the emotion's own word.
+
+One number must not be read at face value: the 171-run gate records 0/172 emotions
+beating its Bonferroni null. That is a **resolution limit** — 500 permutations floor the
+p-value at 0.00200 while Bonferroni over 172 demands 0.00029, so no effect size could
+clear it (it needs ≈3,440 permutations). All 172 clear the uncorrected 0.05; the 16-run
+test is resolvable and passes 17/17.
+
+The write-space run is kept under `results/phases/write_space_ablation/` as an
+*ablation*, not a superseded attempt: it answers "what residual would make the model emit
+token `t`", which is the question relevant to steering.
+
+### Fixing it properly — no GPU required
+
+A rank-based cross-lingual GATE A is a small computation. The readout is
+`logits = lm_head(final_norm(J_l @ h))`, so it needs two tensors that are not in
+`outputs/`:
+
+| tensor | shape | size | where |
+| --- | --- | --- | --- |
+| `J[31]` | 5120 × 5120 fp32 | ~105 MB | one entry inside the 6.6 GB `Qwen3-32B_jacobian_lens.pt` |
+| `lm_head.weight` + final-norm gain | 151936 × 5120 bf16 | ~1.6 GB | one shard of the Qwen3-32B safetensors |
+
+The emotion vectors are already local in `phase2_emotion_vectors.safetensors` and the
+tokenizer is already local. What remains is **one matrix–vector product and a top-k on
+CPU** — seconds, no GPU, no 32B forward pass, no pod. The cost is ~1.7 GB of bandwidth,
+not hardware.
+
+Two follow-ups this specifies, neither yet run:
+
+1. **A real cross-lingual GATE A** with Chinese token ranks, replacing the containment
+   proxy above.
+2. **A Chinese probe set for the AUROC tests.** Every Phase 4 ordering statistic uses
+   English probes that sit at rank 10⁵. If the model's block-31 lexicalisation is
+   Chinese, Chinese probes should separate at least as well and probably better — a
+   cheap, falsifiable prediction that this analysis makes and does not test.
 
 ---
 

@@ -64,6 +64,9 @@ class StubTokenizer:
     """Records the padding side in force at each call, which is the thing under test."""
 
     pad_token_id = 0
+    # A stop token distinct from pad, so "finished" is a real signal rather than an
+    # artefact of padding.
+    eos_token_id = 99
 
     def __init__(self):
         self.padding_side = "right"
@@ -172,7 +175,13 @@ def test_generation() -> None:
     prompts = ["a", "b b b", "c c", "d", "e"]
 
     original = p8.model_utils.prepare_texts
-    p8.model_utils.prepare_texts = lambda texts, *a, **k: list(texts)
+    seen_thinking: list = []
+
+    def spy(texts, *a, **k):
+        seen_thinking.append(k.get("enable_thinking"))
+        return list(texts)
+
+    p8.model_utils.prepare_texts = spy
     device = p8.model_utils.model_input_device
     p8.model_utils.model_input_device = lambda _model: "cpu"
     try:
@@ -182,14 +191,23 @@ def test_generation() -> None:
         p8.model_utils.model_input_device = device
 
     check("one completion per prompt", len(out) == len(prompts))
+    check("every batch asked prepare_texts to disable thinking",
+          seen_thinking and all(v is False for v in seen_thinking),
+          f"{len(seen_thinking)} batches, values {set(seen_thinking)}")
     check("left padding while generating", set(tokenizer.sides_seen) == {"left"},
           str(tokenizer.sides_seen))
     check("padding side restored afterwards", tokenizer.padding_side == "right")
     check("batched at generation_batch_size", tokenizer.batch_sizes == [2, 2, 1],
           str(tokenizer.batch_sizes))
-    check("only the completion is decoded", all(len(t.split()) == 2 for t in out),
-          str(out))
-    check("completions are not all identical", len(set(out)) > 1)
+    texts = [c.text for c in out]
+    check("only the completion is decoded", all(len(t.split()) == 2 for t in texts),
+          str(texts))
+    check("completions are not all identical", len(set(texts)) > 1)
+    check("each completion reports whether the model stopped",
+          all(isinstance(c.finished, bool) for c in out))
+    check("the stub never emits EOS, so nothing is marked finished",
+          not any(c.finished for c in out),
+          "which is exactly the state the completion-rate line exists to surface")
 
 
 def test_grid_cells() -> None:

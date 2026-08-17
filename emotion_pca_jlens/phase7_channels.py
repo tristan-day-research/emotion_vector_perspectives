@@ -72,9 +72,13 @@ from emotion_pca_jlens.channel_prompts import (
     MECHANICAL_SCORERS,
     REPORT_PROMPTS,
     REPORT_RUBRIC,
+    Completion,
     affect_hits,
     affect_vocabulary,
     channel_texts,
+    completion_rate,
+    invalid_rates,
+    judge_precheck,
 )
 from emotion_pca_jlens.pca_jlens_config import PCAJLensConfig, load_config
 
@@ -139,17 +143,13 @@ def read_decomposition(config: PCAJLensConfig) -> dict:
             "first:\n\n  python run.py phase6\n"
         )
     decomposition = json.loads(path.read_text(encoding="utf-8"))
-    # Phase 7 ranks emotions by frac_reportable, so it must not run on a decomposition
-    # whose own gate refused to report one. Absent means a pre-check Phase 6 run, which
-    # is treated as invalid rather than as permission.
-    if not decomposition.get("dictionary_valid", False):
+    if decomposition.get("write_space"):
         raise SystemExit(
-            f"{path} reports dictionary_valid=false (or predates the check).\n\n"
-            "Phase 6's atom-validity check did not pass, so lensing an atom does not\n"
-            "reliably return its own token and frac_reportable is a variance share out "
-            "of\nmislabelled directions. Phase 7 ranks emotions by exactly that number. "
-            "Fix the\ndictionary first -- Phase 6's verdict names the knob:\n\n"
-            "  python run.py phase6\n"
+            f"{path} was written by a write_space run.\n\n"
+            "Those atoms are J^+ (g*w_t) -- the directions that most efficiently WRITE "
+            "each\ntoken -- so frac_reportable there is not about reportability at all, "
+            "and Phase 7\nranks its emotions by exactly that number. Re-run Phase 6 "
+            "without the ablation:\n\n  python run.py phase6\n"
         )
     return decomposition
 
@@ -162,11 +162,24 @@ def rank_candidates(decomposition: dict, config: PCAJLensConfig) -> list[Candida
     refusal rate, persistence and hedging are all things anxiety plausibly moves,
     where a low-arousal positive emotion gives the behaviour channel very little to
     detect. So arousal and valence break ties, but cleanliness gates: an emotion
-    whose ``v_J`` is at chance has no meaningful reportable part to contrast against
-    its remainder, and steering it would compare two arbitrary directions.
+    whose ``v_J`` is at the random null has no meaningful reportable part to contrast
+    against its remainder, and steering it would compare two arbitrary directions.
+
+    Read at Phase 6's **saved** ``k``, which is the ``k`` its ``v_J`` / ``v_perp``
+    tensors are at and therefore the ``k`` Phase 8 steers with. Reading a different one
+    would rank emotions on a split that no artefact contains -- the fraction rises with
+    ``k`` by construction, since the reconstructable set grows with it.
+
+    ``p_value`` gates where Phase 6 recorded one; the 3x-the-null fallback is for
+    sidecars written before the p-value existed.
     """
-    control = decomposition.get("random_control", {})
+    saved_k = str(decomposition.get("saved_k", config.n_dict_atoms))
+    controls = decomposition.get("random_control", {})
+    control = controls.get(saved_k, {}) if isinstance(controls, dict) else {}
+    if "mean" not in control and isinstance(controls, dict) and "mean" in controls:
+        control = controls              # a pre-multi-k sidecar: one control, not per k
     chance = control.get("mean")
+    alpha = decomposition.get("gate", {}).get("alpha_bonferroni")
     labels = {}
     for row in decomposition.get("per_emotion", []):
         labels[row["emotion"]] = row
@@ -176,8 +189,16 @@ def rank_candidates(decomposition: dict, config: PCAJLensConfig) -> list[Candida
         if emotion == "neutral":
             continue
         reasons: list[str] = []
-        frac = float(row.get("frac_reportable", 0.0))
-        if chance and frac <= 3 * chance:
+        at_k = row.get("per_k", {}).get(saved_k, row)
+        frac = float(at_k.get("frac_reportable", 0.0))
+        p_value = at_k.get("p_value")
+        if alpha is not None and p_value is not None:
+            if p_value >= alpha:
+                reasons.append(
+                    f"v_J is {frac:.1%} at p={p_value:.4f}, which does not beat the "
+                    f"random null at the corrected alpha {alpha:.4f}"
+                )
+        elif chance and frac <= 3 * chance:
             reasons.append(
                 f"v_J is {frac:.1%}, not clearly above the {chance:.1%} random control"
             )
@@ -372,22 +393,33 @@ def report_availability(
 # Generation and scoring
 # --------------------------------------------------------------------------- #
 
-def generate(model, tokenizer, config: PCAJLensConfig, prompts: list[str]) -> list[str]:
+def generate(
+    model, tokenizer, config: PCAJLensConfig, prompts: list[str]
+) -> list[Completion]:
     """Chat-formatted generation, one completion per prompt.
 
     Chat-formatted because the behaviour channel is a conversation -- which crosses
     the boundary Phase 2's raw-text extraction sat on. See the module docstring: the
     assumption that steering transfers across it is an assumption.
+
+    ``enable_thinking`` is forwarded from the config, and **off** by default. Left on,
+    Qwen3's template opens a ``<think>`` block and the budget goes on reasoning rather
+    than on an answer; the gate prints the resolved state because the flag is silently
+    ignored by templates that do not use it.
+
+    Returns :class:`Completion` rather than strings, because whether the model stopped or
+    ran out of budget is not recoverable from the text and every scorer needs it.
     """
     import torch
 
     device = model_utils.model_input_device(model)
-    outputs: list[str] = []
+    outputs: list[Completion] = []
     with torch.inference_mode():
         for prompt in prompts:
             text = model_utils.prepare_texts(
                 [prompt], tokenizer, use_chat_template=True,
                 chat_add_generation_prompt=True,
+                enable_thinking=config.enable_thinking,
             )[0]
             encoded = tokenizer(text, return_tensors="pt").to(device)
             generated = model.generate(
@@ -397,12 +429,19 @@ def generate(model, tokenizer, config: PCAJLensConfig, prompts: list[str]) -> li
                 pad_token_id=tokenizer.pad_token_id,
             )
             completion = generated[0][encoded["input_ids"].shape[-1]:]
-            outputs.append(tokenizer.decode(completion, skip_special_tokens=True))
+            ids = [int(t) for t in completion]
+            stops = {tokenizer.eos_token_id, tokenizer.pad_token_id} - {None}
+            outputs.append(Completion(
+                text=tokenizer.decode(completion, skip_special_tokens=True),
+                # A run that stopped emitted a stop token; one that hit the cap did not.
+                finished=any(i in stops for i in ids),
+                n_new_tokens=len(ids),
+            ))
     return outputs
 
 
 def score_behaviour(
-    responses: dict[str, str], judge: Judge | None
+    responses: dict[str, Completion], judge: Judge | None
 ) -> tuple[list[dict], dict]:
     """Score every behaviour response. Mechanical where possible, judge where not.
 
@@ -411,36 +450,53 @@ def score_behaviour(
     that asks "does this express the emotion" -- a number in the right range, on the
     right scale, measuring the wrong thing, and it is the report channel leaking into
     the behaviour channel that the separation gate exists to prevent.
+
+    Judge-scored families go through :func:`judge_precheck` first. A response that never
+    reached an answer must not be sent to a rubric whose top score is "declined": the
+    model did not decline, it ran out of budget, and the judge has no way to tell.
     """
     rows: list[dict] = []
     for task in BEHAVIOUR_TASKS:
-        response = responses.get(task.prompt)
-        if response is None:
+        completion = responses.get(task.prompt)
+        if completion is None:
             continue
+        base = {"family": task.family, "prompt": task.prompt, "note": task.note,
+                "response": completion.text, "finished": completion.finished,
+                "n_new_tokens": completion.n_new_tokens}
         if task.scorer == "mechanical":
-            result = MECHANICAL_SCORERS[task.family](response)
-            rows.append({
-                "family": task.family, "scorer": "mechanical",
-                "score": result["score"], "detail": result["detail"],
-                "prompt": task.prompt, "note": task.note,
-            })
+            result = MECHANICAL_SCORERS[task.family](
+                completion.text, truncated=completion.truncated
+            )
+            rows.append({**base, "scorer": "mechanical", **_score_fields(result)})
+            continue
+        precheck = judge_precheck(completion.text, truncated=completion.truncated)
+        if precheck is not None:
+            rows.append({**base, "scorer": "precheck", **_score_fields(precheck)})
             continue
         if judge is None:
-            rows.append({
-                "family": task.family, "scorer": "judge (skipped)",
-                "score": None, "detail": "no judge available",
-                "prompt": task.prompt, "note": task.note,
-            })
+            rows.append({**base, "scorer": "judge (skipped)", "score": None,
+                         "valid": False, "reason": "no judge available",
+                         "detail": "no judge available"})
             continue
-        verdict = judge.score(response, label=task.family)
+        verdict = judge.score(completion.text, label=task.family)
         rows.append({
-            "family": task.family, "scorer": "judge",
-            "score": verdict.score,
+            **base, "scorer": "judge", "score": verdict.score,
+            "valid": bool(verdict.usable),
+            "reason": "" if verdict.usable else (verdict.error or "unusable verdict"),
             "detail": verdict.reason or verdict.error or "",
-            "prompt": task.prompt, "note": task.note,
         })
     usage = {"calls": judge.calls, **judge.usage} if judge else {"calls": 0}
     return rows, usage
+
+
+def _score_fields(result: dict) -> dict:
+    """Flatten a scorer's verdict onto a row, keeping ``valid`` explicit."""
+    return {
+        "score": result.get("score"),
+        "valid": bool(result.get("valid", result.get("score") is not None)),
+        "reason": result.get("reason", ""),
+        "detail": result.get("detail", ""),
+    }
 
 
 def dynamic_range(rows: list[dict]) -> dict:
@@ -450,7 +506,9 @@ def dynamic_range(rows: list[dict]) -> dict:
     scores every baseline response identically leaves no room for a steering effect,
     and discovering that after a 2-4 hour grid is the expensive way to learn it.
     """
-    frame = pd.DataFrame([r for r in rows if r["score"] is not None])
+    frame = pd.DataFrame([
+        r for r in rows if r.get("valid", r["score"] is not None) and r["score"] is not None
+    ])
     if frame.empty:
         return {"scored": False}
     out: dict = {"scored": True, "per_family": {}}
@@ -467,6 +525,100 @@ def dynamic_range(rows: list[dict]) -> dict:
         f for f, d in out["per_family"].items() if not d["has_range"]
     ]
     return out
+
+
+def manipulation_checks(
+    rows: list[dict], completions: list[Completion], config: PCAJLensConfig
+) -> dict:
+    """The hard gate: can these channels be measured at all?
+
+    Three conditions, and a failure of any one aborts Phase 7 rather than being printed
+    and passed downstream. That distinction is the fix for a real failure: this stage
+    previously reported "no dynamic range for report, risk and persistence" and exited 0,
+    Phase 8 accepted the record, and hours of grid were spent on families that could not
+    move.
+
+    * **Invalid rate per family** at or below ``max_invalid_rate``. A family whose
+      responses are mostly unscoreable has no measurement to steer.
+    * **Dynamic range per family.** A rubric that scores every unsteered response
+      identically leaves no room for a steering effect to appear in.
+    * **Completion rate.** Reported and gated together with the rest, because a low one is
+      the upstream cause of both of the above: the budget went on a reasoning block and
+      the answer never arrived.
+    """
+    invalid = invalid_rates(rows)
+    over = {
+        family: bucket for family, bucket in invalid.items()
+        if bucket["rate"] > config.max_invalid_rate
+    }
+    spread = dynamic_range(rows)
+    without_range = list(spread.get("families_without_range", []))
+    if not spread.get("scored"):
+        without_range = sorted({r["family"] for r in rows})
+    completion = completion_rate(completions)
+    passed = bool(not over and not without_range and spread.get("scored"))
+    return {
+        "passed": passed,
+        "invalid_rates": invalid,
+        "families_over_invalid_ceiling": sorted(over),
+        "max_invalid_rate": config.max_invalid_rate,
+        "dynamic_range": spread,
+        "families_without_range": without_range,
+        "completion": completion,
+        "enable_thinking": config.enable_thinking,
+    }
+
+
+def print_manipulation_checks(checks: dict, thinking: dict, config: PCAJLensConfig) -> None:
+    print()
+    print(RULE)
+    print("HARD GATE  Can these channels be measured at all?")
+    print(RULE)
+    resolved = (
+        "OFF" if config.enable_thinking is False and thinking.get("supported")
+        else "ON" if config.enable_thinking and thinking.get("supported")
+        else "NOT SUPPORTED by this chat template"
+    )
+    print(f"  thinking mode        : {resolved}   (requested "
+          f"enable_thinking={config.enable_thinking})")
+    if not thinking.get("supported"):
+        print("    the template renders identically with and without the flag, so it is a")
+        print("    no-op here. If this is a hybrid reasoning model, the block is opening")
+        print("    anyway and every number below is measuring truncated reasoning.")
+    elif config.enable_thinking:
+        print("    ON is almost certainly wrong for this pipeline: the budget goes on a")
+        print("    reasoning block and a truncated block scores as if it were an answer.")
+    completion = checks["completion"]
+    if completion.get("n"):
+        print(f"  completion rate      : {completion['rate']:.1%} "
+              f"({completion['finished']}/{completion['n']}) ended in EOS rather than")
+        print(f"                         hitting the {config.generation_max_new_tokens}-token "
+              f"cap; median {completion['median_new_tokens']:.0f} new tokens")
+        if completion["rate"] < 0.9:
+            print("    LOW. Responses are being cut off, so 'did not answer' cannot be")
+            print("    told from 'answered badly'. Check the thinking mode above first.")
+    print(f"  invalid ceiling      : {config.max_invalid_rate:.0%} per family")
+    print(f"  {'family':<14}{'n':>4}{'invalid':>9}{'range':>8}{'spread':>10}  reason")
+    print(THIN)
+    per_family = checks["dynamic_range"].get("per_family", {})
+    for family in sorted(checks["invalid_rates"]):
+        bucket = checks["invalid_rates"][family]
+        info = per_family.get(family, {})
+        has_range = info.get("has_range")
+        print(f"  {family:<14}{bucket['n']:>4}{bucket['rate']:>8.0%}"
+              + f"{('yes' if has_range else 'NO'):>8}"
+              + (f"{info['spread']:>10.2f}" if info else f"{'-':>10}")
+              + "  " + (bucket["top_reason"][:40] if bucket["top_reason"] else ""))
+    print(THIN)
+    if checks["families_over_invalid_ceiling"]:
+        print(f"  FAILED: {checks['families_over_invalid_ceiling']} are above the invalid")
+        print("  ceiling. Those responses were not scored badly, they were not scored at")
+        print("  all -- the reason column says why.")
+    if checks["families_without_range"]:
+        print(f"  FAILED: {checks['families_without_range']} have no dynamic range across")
+        print("  the unsteered prompts, so no steering effect could show up in them. Phase")
+        print("  8 would spend hours measuring a constant.")
+    print(f"  gate: {'PASS' if checks['passed'] else 'FAIL'}")
 
 
 # --------------------------------------------------------------------------- #
@@ -656,26 +808,49 @@ def main(argv: list[str] | None = None) -> int:
         trust_remote_code=config.trust_remote_code,
     )
     print(f"  loaded in {time.time() - t0:.0f}s")
+    thinking = model_utils.thinking_flag_effect(tokenizer)
+    print(f"  thinking mode  : requested enable_thinking={config.enable_thinking}; "
+          f"template responds to the flag: {thinking['supported']}")
+    if not thinking["supported"]:
+        print(f"                   {thinking['reason']}")
     print(f"  generating {len(REPORT_PROMPTS)} report + {len(BEHAVIOUR_TASKS)} "
           f"behaviour completions at {config.generation_max_new_tokens} new tokens "
           "each ...")
     t0 = time.time()
-    report_texts = generate(model, tokenizer, config, list(REPORT_PROMPTS))
+    report_completions = generate(model, tokenizer, config, list(REPORT_PROMPTS))
     behaviour_prompts = [t.prompt for t in BEHAVIOUR_TASKS]
-    behaviour_texts = generate(model, tokenizer, config, behaviour_prompts)
+    behaviour_completions = generate(model, tokenizer, config, behaviour_prompts)
     print(f"  generated in {time.time() - t0:.0f}s")
+    report_texts = [c.text for c in report_completions]
 
     behaviour_rows, judge_usage = score_behaviour(
-        dict(zip(behaviour_prompts, behaviour_texts)), behaviour_judge
+        dict(zip(behaviour_prompts, behaviour_completions)), behaviour_judge
     )
     report_rows: list[dict] = []
-    for prompt, text in zip(REPORT_PROMPTS, report_texts):
-        verdict = judge.score(text, label=chosen[0]) if judge else None
+    for prompt, completion in zip(REPORT_PROMPTS, report_completions):
+        # The same precheck the behaviour channel gets. A report response that never
+        # reached an answer must not be scored 0 for "expresses none of this emotion":
+        # nothing was expressed because nothing was said.
+        precheck = judge_precheck(completion.text, truncated=completion.truncated)
+        if precheck is not None:
+            report_rows.append({
+                "family": "report", "prompt": prompt, "response": completion.text,
+                "finished": completion.finished, "scorer": "precheck",
+                **_score_fields(precheck),
+            })
+            continue
+        verdict = judge.score(completion.text, label=chosen[0]) if judge else None
         report_rows.append({
-            "prompt": prompt,
+            "family": "report", "prompt": prompt, "response": completion.text,
+            "finished": completion.finished,
+            "scorer": "judge" if verdict else "judge (skipped)",
             "score": None if verdict is None else verdict.score,
+            "valid": bool(verdict.usable) if verdict else False,
+            "reason": "" if verdict and verdict.usable else (
+                "no judge available" if verdict is None
+                else (verdict.error or "unusable verdict")
+            ),
             "detail": "" if verdict is None else (verdict.reason or verdict.error or ""),
-            "response": text,
         })
     if judge is not None:
         # Both judges' calls, or the cost line would report only the behaviour half.
@@ -721,10 +896,13 @@ def main(argv: list[str] | None = None) -> int:
         availability = {"available": False, "reason": str(exc)}
         print(f"  unavailable: {exc}")
 
-    # --- dynamic range ----------------------------------------------------- #
-    ranges = dynamic_range(behaviour_rows + [
-        {"family": "report", "score": r["score"]} for r in report_rows
-    ])
+    # --- the hard gate ----------------------------------------------------- #
+    all_rows = behaviour_rows + report_rows
+    checks = manipulation_checks(
+        all_rows, list(report_completions) + list(behaviour_completions), config
+    )
+    print_manipulation_checks(checks, thinking, config)
+    ranges = checks["dynamic_range"]
     print()
     print(RULE)
     print("STEP 5  Does the unsteered baseline leave room for an effect?")
@@ -757,6 +935,14 @@ def main(argv: list[str] | None = None) -> int:
         "dynamic_range": ranges, "report_availability": availability,
         "judge_usage": judge_usage,
     }
+    # Top level and named: Phase 8 refuses to run against a record where this is not
+    # True, so it must not be buried inside "baseline" where a consumer has to guess.
+    sections["manipulation_checks"] = checks
+    sections["thinking"] = {
+        "requested": config.enable_thinking, "template_effect": thinking,
+        "resolved": ("off" if not config.enable_thinking and thinking["supported"]
+                     else "on" if thinking["supported"] else "unsupported"),
+    }
     txt_path, json_path = provenance.write_run_record(
         out_dir, title=f"PHASE 7 GATE -- {config.run_name}",
         sections=sections, txt_name="phase7_gate.txt", json_name="phase7_gate.json",
@@ -771,8 +957,15 @@ def main(argv: list[str] | None = None) -> int:
           f"{separation['report_hits']} in the report channel as expected)")
     print(f"  emotions chosen      : {chosen}"
           + ("" if arousal_negative else "   (no arousal-heavy negative -- see above)"))
-    print(f"  baseline range       : "
-          f"{'PASS' if ranges.get('scored') and not ranges['families_without_range'] else 'REVIEW'}")
+    print(f"  manipulation checks  : {'PASS' if checks['passed'] else 'FAILED'}")
+    print(f"  thinking mode        : {sections['thinking']['resolved']}")
+    print(f"  completion rate      : "
+          f"{checks['completion'].get('rate', float('nan')):.1%} ended in EOS")
+    worst = max(
+        (b["rate"] for b in checks["invalid_rates"].values()), default=0.0
+    )
+    print(f"  worst invalid rate   : {worst:.0%} "
+          f"(ceiling {config.max_invalid_rate:.0%})")
     print(f"  judge                : "
           f"{config.judge_model if judge else 'not used'}"
           + (f", {judge_usage['calls']} calls" if judge else ""))
@@ -787,6 +980,14 @@ def main(argv: list[str] | None = None) -> int:
     print("  behaviour channel; only you can confirm no affect *question* does. That is")
     print("  why this gate stops here and cannot be a threshold.")
     print()
+    if not checks["passed"]:
+        print("  ABORTING at exit 3. The channels cannot be measured as they stand, and")
+        print("  Phase 8 refuses to run against this record. What to change is above: a")
+        print("  family over the invalid ceiling needs its responses to actually reach an")
+        print("  answer, and a family without dynamic range needs a scorer or prompts")
+        print("  that can distinguish two of them.")
+        print(RULE)
+        return 3
     print("STOPPING at the Phase 7 gate, as agreed. Phase 8 (steering) has not run.")
     print(RULE)
     return 0

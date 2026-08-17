@@ -1,0 +1,2262 @@
+{
+  " Bbw": {
+    "confidence": "high",
+    "english": "BBW, porn-industry acronym",
+    "source": "assistant-offline"
+  },
+  " Blowjob": {
+    "confidence": "high",
+    "english": "porn-industry term",
+    "source": "assistant-offline"
+  },
+  " Erotische": {
+    "confidence": "high",
+    "english": "erotic (German, inflected adjective)",
+    "source": "assistant-offline"
+  },
+  " Geile": {
+    "confidence": "high",
+    "english": "horny, randy (German, inflected)",
+    "source": "assistant-offline"
+  },
+  " Notíc": {
+    "confidence": "medium",
+    "english": "fragment of notícia 'news' (Portuguese, Spanish)",
+    "source": "assistant-offline"
+  },
+  " Prostitutas": {
+    "confidence": "high",
+    "english": "prostitutes (Spanish, Portuguese)",
+    "source": "assistant-offline"
+  },
+  " Shemale": {
+    "confidence": "high",
+    "english": "porn-industry term for a trans woman; slur",
+    "source": "assistant-offline"
+  },
+  " amatør": {
+    "confidence": "high",
+    "english": "amateur (Danish, Norwegian)",
+    "source": "assistant-offline"
+  },
+  " arsch": {
+    "confidence": "high",
+    "english": "arse (German)",
+    "source": "assistant-offline"
+  },
+  " coquine": {
+    "confidence": "high",
+    "english": "naughty girl, minx (French)",
+    "source": "assistant-offline"
+  },
+  " councill": {
+    "confidence": "medium",
+    "english": "fragment of council / councillor",
+    "source": "assistant-offline"
+  },
+  " cumshot": {
+    "confidence": "high",
+    "english": "porn-industry term",
+    "source": "assistant-offline"
+  },
+  " damer": {
+    "confidence": "medium",
+    "english": "ladies (Danish, Norwegian, French)",
+    "source": "assistant-offline"
+  },
+  " danmark": {
+    "confidence": "high",
+    "english": "Denmark (Danish)",
+    "source": "assistant-offline"
+  },
+  " dõ": {
+    "confidence": "low",
+    "english": "fragment carrying a Portuguese/Vietnamese diacritic; unclear",
+    "source": "assistant-offline"
+  },
+  " erotik": {
+    "confidence": "high",
+    "english": "erotica, erotic (German, Turkish, Scandinavian)",
+    "source": "assistant-offline"
+  },
+  " erotisch": {
+    "confidence": "high",
+    "english": "erotic (German, Dutch)",
+    "source": "assistant-offline"
+  },
+  " erotisk": {
+    "confidence": "high",
+    "english": "erotic (Danish, Swedish, Norwegian)",
+    "source": "assistant-offline"
+  },
+  " eskort": {
+    "confidence": "high",
+    "english": "escort (Scandinavian, Turkish)",
+    "source": "assistant-offline"
+  },
+  " fetisch": {
+    "confidence": "high",
+    "english": "fetish (German, Dutch)",
+    "source": "assistant-offline"
+  },
+  " follando": {
+    "confidence": "high",
+    "english": "fucking (Spanish, vulgar, gerund)",
+    "source": "assistant-offline"
+  },
+  " köln": {
+    "confidence": "high",
+    "english": "Cologne, the German city",
+    "source": "assistant-offline"
+  },
+  " lesbische": {
+    "confidence": "high",
+    "english": "lesbian (German, Dutch, inflected adjective)",
+    "source": "assistant-offline"
+  },
+  " milfs": {
+    "confidence": "high",
+    "english": "porn-spam slang plural; English but off-register",
+    "source": "assistant-offline"
+  },
+  " modne": {
+    "confidence": "low",
+    "english": "mature (Danish, Norwegian); or 'fashionable' (Polish)",
+    "source": "assistant-offline"
+  },
+  " männer": {
+    "confidence": "high",
+    "english": "men (German)",
+    "source": "assistant-offline"
+  },
+  " neuken": {
+    "confidence": "high",
+    "english": "to fuck (Dutch, vulgar)",
+    "source": "assistant-offline"
+  },
+  " pobli": {
+    "confidence": "low",
+    "english": "Polish fragment, likely w pobliżu 'nearby'",
+    "source": "assistant-offline"
+  },
+  " pornost": {
+    "confidence": "medium",
+    "english": "fragment of pornostar(s) / pornoster; porn-spam vocabulary",
+    "source": "assistant-offline"
+  },
+  " pornô": {
+    "confidence": "high",
+    "english": "porn (Portuguese)",
+    "source": "assistant-offline"
+  },
+  " prostituer": {
+    "confidence": "medium",
+    "english": "prostitute / to prostitute (French, Danish stem)",
+    "source": "assistant-offline"
+  },
+  " ragaz": {
+    "confidence": "medium",
+    "english": "fragment of Italian ragazza / ragazzi 'girl, kids'",
+    "source": "assistant-offline"
+  },
+  " salopes": {
+    "confidence": "high",
+    "english": "sluts (French, vulgar)",
+    "source": "assistant-offline"
+  },
+  " strapon": {
+    "confidence": "high",
+    "english": "strap-on (sex toy)",
+    "source": "assistant-offline"
+  },
+  " toplant": {
+    "confidence": "medium",
+    "english": "fragment of Turkish toplantı 'meeting'",
+    "source": "assistant-offline"
+  },
+  " wś": {
+    "confidence": "low",
+    "english": "Polish fragment, likely wśród 'among' or wieś 'village'",
+    "source": "assistant-offline"
+  },
+  " Почем": {
+    "confidence": "medium",
+    "english": "fragment of Почему 'why' (or почем 'how much')",
+    "source": "assistant-offline"
+  },
+  " безопасн": {
+    "confidence": "medium",
+    "english": "stem of безопасный / безопасность 'safe, security'",
+    "source": "assistant-offline"
+  },
+  " зло": {
+    "confidence": "high",
+    "english": "evil, harm",
+    "source": "assistant-offline"
+  },
+  " иногда": {
+    "confidence": "high",
+    "english": "sometimes",
+    "source": "assistant-offline"
+  },
+  " нарко": {
+    "confidence": "high",
+    "english": "narco- prefix, as in наркотик 'narcotic'",
+    "source": "assistant-offline"
+  },
+  " посколь": {
+    "confidence": "medium",
+    "english": "fragment of поскольку 'since, inasmuch as'",
+    "source": "assistant-offline"
+  },
+  " путеш": {
+    "confidence": "medium",
+    "english": "fragment of путешествие 'journey, travel'",
+    "source": "assistant-offline"
+  },
+  " сообщил": {
+    "confidence": "high",
+    "english": "reported, informed (masculine past)",
+    "source": "assistant-offline"
+  },
+  " ‎": {
+    "confidence": "high",
+    "english": "LEFT-TO-RIGHT MARK: invisible bidi control, no lexical content",
+    "source": "assistant-offline"
+  },
+  " 설명": {
+    "confidence": "high",
+    "english": "explanation (Korean)",
+    "source": "assistant-offline"
+  },
+  "gMaps": {
+    "confidence": "medium",
+    "english": "code identifier fragment, 'Google Maps'",
+    "source": "assistant-offline"
+  },
+  "iationException": {
+    "confidence": "medium",
+    "english": "tail of a Java/C# exception class name",
+    "source": "assistant-offline"
+  },
+  "ondrous": {
+    "confidence": "high",
+    "english": "fragment of 'wondrous'",
+    "source": "assistant-offline"
+  },
+  "благо": {
+    "confidence": "medium",
+    "english": "good, benefit; also stem of благодаря 'thanks to'",
+    "source": "assistant-offline"
+  },
+  "индив": {
+    "confidence": "medium",
+    "english": "shorter fragment of индивид- 'individual'",
+    "source": "assistant-offline"
+  },
+  "индивид": {
+    "confidence": "medium",
+    "english": "individual (stem of индивидуальный)",
+    "source": "assistant-offline"
+  },
+  "ино": {
+    "confidence": "low",
+    "english": "ино- prefix: other-, foreign- (иностранный)",
+    "source": "assistant-offline"
+  },
+  "практик": {
+    "confidence": "medium",
+    "english": "stem of практика / практический 'practice, practical'",
+    "source": "assistant-offline"
+  },
+  "профессионал": {
+    "confidence": "high",
+    "english": "professional (noun stem)",
+    "source": "assistant-offline"
+  },
+  "резидент": {
+    "confidence": "high",
+    "english": "resident",
+    "source": "assistant-offline"
+  },
+  "российск": {
+    "confidence": "medium",
+    "english": "stem of российский 'Russian (of Russia)'",
+    "source": "assistant-offline"
+  },
+  "скоп": {
+    "confidence": "low",
+    "english": "fragment: -скоп '-scope', or скопление 'accumulation'",
+    "source": "assistant-offline"
+  },
+  "тради": {
+    "confidence": "medium",
+    "english": "fragment of традиция 'tradition'",
+    "source": "assistant-offline"
+  },
+  "مصل": {
+    "confidence": "low",
+    "english": "serum; also the stem of مصلحة 'interest'",
+    "source": "assistant-offline"
+  },
+  "مصلحة": {
+    "confidence": "high",
+    "english": "interest, benefit; also a government bureau",
+    "source": "assistant-offline"
+  },
+  "مفاوضات": {
+    "confidence": "high",
+    "english": "negotiations, talks",
+    "source": "assistant-offline"
+  },
+  "นโย": {
+    "confidence": "medium",
+    "english": "fragment of นโยบาย 'policy'",
+    "source": "assistant-offline"
+  },
+  "เทคโน": {
+    "confidence": "medium",
+    "english": "fragment of เทคโนโลยี 'technology'",
+    "source": "assistant-offline"
+  },
+  "โทษ": {
+    "confidence": "high",
+    "english": "punishment, penalty; blame; harm",
+    "source": "assistant-offline"
+  },
+  "​\n\n": {
+    "confidence": "high",
+    "english": "ZERO WIDTH SPACE: invisible formatting, no lexical content",
+    "source": "assistant-offline"
+  },
+  "‎": {
+    "confidence": "high",
+    "english": "LEFT-TO-RIGHT MARK: invisible bidi control, no lexical content",
+    "source": "assistant-offline"
+  },
+  "お互": {
+    "confidence": "medium",
+    "english": "fragment of お互い 'each other, mutually' (Japanese)",
+    "source": "assistant-offline"
+  },
+  "すごい": {
+    "confidence": "high",
+    "english": "amazing, incredible (Japanese)",
+    "source": "assistant-offline"
+  },
+  "みんな": {
+    "confidence": "high",
+    "english": "everyone, everybody (Japanese)",
+    "source": "assistant-offline"
+  },
+  "不会再": {
+    "confidence": "high",
+    "english": "'will not ... again'",
+    "source": "assistant-offline"
+  },
+  "不可思议": {
+    "confidence": "high",
+    "english": "inconceivable, incredible",
+    "source": "assistant-offline"
+  },
+  "不太": {
+    "confidence": "high",
+    "english": "'not very' (adverbial fragment)",
+    "source": "assistant-offline"
+  },
+  "不明": {
+    "confidence": "high",
+    "english": "unclear, unidentified",
+    "source": "assistant-offline"
+  },
+  "专项斗争": {
+    "confidence": "medium",
+    "english": "special crackdown campaign (state slogan)",
+    "source": "zh_en_glossary"
+  },
+  "丢失": {
+    "confidence": "high",
+    "english": "to lose, go missing",
+    "source": "assistant-offline"
+  },
+  "丧失": {
+    "confidence": "high",
+    "english": "to lose (a faculty, a right)",
+    "source": "assistant-offline"
+  },
+  "也没什么": {
+    "confidence": "high",
+    "english": "'and it's nothing much either'",
+    "source": "assistant-offline"
+  },
+  "亏损": {
+    "confidence": "medium",
+    "english": "financial loss",
+    "source": "zh_en_glossary"
+  },
+  "亲情": {
+    "confidence": "high",
+    "english": "family affection",
+    "source": "assistant-offline"
+  },
+  "人物": {
+    "confidence": "high",
+    "english": "figure, personage; character",
+    "source": "assistant-offline"
+  },
+  "仇恨": {
+    "confidence": "medium",
+    "english": "hatred",
+    "source": "zh_en_glossary"
+  },
+  "他们": {
+    "confidence": "high",
+    "english": "they, them",
+    "source": "assistant-offline"
+  },
+  "休息": {
+    "confidence": "high",
+    "english": "to rest",
+    "source": "assistant-offline"
+  },
+  "休闲": {
+    "confidence": "high",
+    "english": "leisure; casual",
+    "source": "assistant-offline"
+  },
+  "优秀的": {
+    "confidence": "high",
+    "english": "'excellent' + attributive 的",
+    "source": "assistant-offline"
+  },
+  "优良": {
+    "confidence": "high",
+    "english": "fine, superior",
+    "source": "assistant-offline"
+  },
+  "优雅": {
+    "confidence": "medium",
+    "english": "elegant, graceful",
+    "source": "zh_en_glossary"
+  },
+  "伟大的": {
+    "confidence": "high",
+    "english": "'great' + attributive 的",
+    "source": "assistant-offline"
+  },
+  "传闻": {
+    "confidence": "high",
+    "english": "rumour, hearsay",
+    "source": "assistant-offline"
+  },
+  "伤害": {
+    "confidence": "high",
+    "english": "to harm; injury",
+    "source": "assistant-offline"
+  },
+  "伤心": {
+    "confidence": "medium",
+    "english": "heartbroken, sad",
+    "source": "zh_en_glossary"
+  },
+  "你们": {
+    "confidence": "high",
+    "english": "you (plural)",
+    "source": "assistant-offline"
+  },
+  "侦查": {
+    "confidence": "high",
+    "english": "to investigate (a crime)",
+    "source": "assistant-offline"
+  },
+  "便宜": {
+    "confidence": "high",
+    "english": "cheap, inexpensive",
+    "source": "assistant-offline"
+  },
+  "保安": {
+    "confidence": "high",
+    "english": "security guard",
+    "source": "assistant-offline"
+  },
+  "倒霉": {
+    "confidence": "high",
+    "english": "unlucky, out of luck",
+    "source": "assistant-offline"
+  },
+  "做一些": {
+    "confidence": "high",
+    "english": "'to do some'",
+    "source": "assistant-offline"
+  },
+  "停滞": {
+    "confidence": "high",
+    "english": "stagnation, to stagnate",
+    "source": "assistant-offline"
+  },
+  "偵": {
+    "confidence": "medium",
+    "english": "traditional form of 侦: to detect, investigate",
+    "source": "assistant-offline"
+  },
+  "偶尔": {
+    "confidence": "medium",
+    "english": "occasionally",
+    "source": "zh_en_glossary"
+  },
+  "光芒": {
+    "confidence": "high",
+    "english": "rays of light, radiance",
+    "source": "assistant-offline"
+  },
+  "光辉": {
+    "confidence": "high",
+    "english": "radiance, glory",
+    "source": "assistant-offline"
+  },
+  "兴奋": {
+    "confidence": "high",
+    "english": "excited, worked up",
+    "source": "assistant-offline"
+  },
+  "其它问题": {
+    "confidence": "high",
+    "english": "'other problems'",
+    "source": "assistant-offline"
+  },
+  "典雅": {
+    "confidence": "high",
+    "english": "elegant, refined",
+    "source": "assistant-offline"
+  },
+  "冲刺": {
+    "confidence": "high",
+    "english": "sprint, final push",
+    "source": "assistant-offline"
+  },
+  "凶手": {
+    "confidence": "medium",
+    "english": "murderer",
+    "source": "zh_en_glossary"
+  },
+  "击杀": {
+    "confidence": "medium",
+    "english": "kill, slay",
+    "source": "zh_en_glossary"
+  },
+  "分钟左右": {
+    "confidence": "high",
+    "english": "'about N minutes'",
+    "source": "assistant-offline"
+  },
+  "创意": {
+    "confidence": "medium",
+    "english": "creative, creativity",
+    "source": "zh_en_glossary"
+  },
+  "初恋": {
+    "confidence": "high",
+    "english": "first love",
+    "source": "assistant-offline"
+  },
+  "刽": {
+    "confidence": "medium",
+    "english": "executioner (bound morpheme, 刽子手)",
+    "source": "zh_en_glossary"
+  },
+  "劣": {
+    "confidence": "medium",
+    "english": "inferior, of poor quality; bound morpheme",
+    "source": "assistant-offline"
+  },
+  "化石": {
+    "confidence": "high",
+    "english": "fossil",
+    "source": "assistant-offline"
+  },
+  "危机": {
+    "confidence": "high",
+    "english": "crisis",
+    "source": "assistant-offline"
+  },
+  "厌恶": {
+    "confidence": "high",
+    "english": "to loathe; disgust",
+    "source": "assistant-offline"
+  },
+  "友好": {
+    "confidence": "high",
+    "english": "friendly",
+    "source": "assistant-offline"
+  },
+  "受伤": {
+    "confidence": "high",
+    "english": "to be injured",
+    "source": "assistant-offline"
+  },
+  "受害者": {
+    "confidence": "high",
+    "english": "victim",
+    "source": "assistant-offline"
+  },
+  "受损": {
+    "confidence": "high",
+    "english": "to be damaged, impaired",
+    "source": "assistant-offline"
+  },
+  "古老的": {
+    "confidence": "high",
+    "english": "'ancient' + attributive 的",
+    "source": "assistant-offline"
+  },
+  "可爱": {
+    "confidence": "medium",
+    "english": "cute, lovable",
+    "source": "zh_en_glossary"
+  },
+  "可爱的": {
+    "confidence": "medium",
+    "english": "cute (attributive form)",
+    "source": "zh_en_glossary"
+  },
+  "可疑": {
+    "confidence": "high",
+    "english": "suspicious, dubious",
+    "source": "assistant-offline"
+  },
+  "后悔": {
+    "confidence": "high",
+    "english": "to regret",
+    "source": "assistant-offline"
+  },
+  "吐槽": {
+    "confidence": "high",
+    "english": "to snark at, gripe about (internet slang)",
+    "source": "assistant-offline"
+  },
+  "咱们": {
+    "confidence": "high",
+    "english": "we, us (inclusive of the listener)",
+    "source": "assistant-offline"
+  },
+  "善良": {
+    "confidence": "high",
+    "english": "kind-hearted",
+    "source": "assistant-offline"
+  },
+  "喜悦": {
+    "confidence": "medium",
+    "english": "joy, delight",
+    "source": "zh_en_glossary"
+  },
+  "喝酒": {
+    "confidence": "high",
+    "english": "to drink alcohol",
+    "source": "assistant-offline"
+  },
+  "嘭": {
+    "confidence": "medium",
+    "english": "bang (onomatopoeia)",
+    "source": "zh_en_glossary"
+  },
+  "嘲笑": {
+    "confidence": "high",
+    "english": "to mock, ridicule",
+    "source": "assistant-offline"
+  },
+  "噱": {
+    "confidence": "low",
+    "english": "bound char of 噱头 'gimmick, sales hook'",
+    "source": "assistant-offline"
+  },
+  "困境": {
+    "confidence": "high",
+    "english": "predicament, difficult straits",
+    "source": "assistant-offline"
+  },
+  "国家安全": {
+    "confidence": "high",
+    "english": "national security",
+    "source": "assistant-offline"
+  },
+  "坚韧": {
+    "confidence": "high",
+    "english": "tough, resilient",
+    "source": "assistant-offline"
+  },
+  "垃圾桶": {
+    "confidence": "high",
+    "english": "rubbish bin",
+    "source": "assistant-offline"
+  },
+  "声称": {
+    "confidence": "high",
+    "english": "to claim, allege",
+    "source": "assistant-offline"
+  },
+  "处罚": {
+    "confidence": "high",
+    "english": "penalty; to penalise",
+    "source": "assistant-offline"
+  },
+  "复仇": {
+    "confidence": "high",
+    "english": "vengeance",
+    "source": "assistant-offline"
+  },
+  "复苏": {
+    "confidence": "high",
+    "english": "to revive, recover (economy, spirits)",
+    "source": "assistant-offline"
+  },
+  "大家一起": {
+    "confidence": "high",
+    "english": "'everyone together'",
+    "source": "assistant-offline"
+  },
+  "太多": {
+    "confidence": "high",
+    "english": "'too many, too much'",
+    "source": "assistant-offline"
+  },
+  "失去": {
+    "confidence": "medium",
+    "english": "lose, loss",
+    "source": "zh_en_glossary"
+  },
+  "失去了": {
+    "confidence": "high",
+    "english": "lost (失去 + perfective 了)",
+    "source": "assistant-offline"
+  },
+  "失控": {
+    "confidence": "medium",
+    "english": "out of control",
+    "source": "zh_en_glossary"
+  },
+  "失效": {
+    "confidence": "high",
+    "english": "to become invalid, cease to work",
+    "source": "assistant-offline"
+  },
+  "失败": {
+    "confidence": "medium",
+    "english": "failure, to fail",
+    "source": "zh_en_glossary"
+  },
+  "失踪": {
+    "confidence": "medium",
+    "english": "go missing",
+    "source": "zh_en_glossary"
+  },
+  "夺冠": {
+    "confidence": "high",
+    "english": "to win the championship",
+    "source": "assistant-offline"
+  },
+  "奇迹": {
+    "confidence": "high",
+    "english": "miracle",
+    "source": "assistant-offline"
+  },
+  "奢华": {
+    "confidence": "high",
+    "english": "luxurious, opulent",
+    "source": "assistant-offline"
+  },
+  "嫉妒": {
+    "confidence": "high",
+    "english": "jealousy, envy",
+    "source": "assistant-offline"
+  },
+  "嫌": {
+    "confidence": "medium",
+    "english": "suspect, dislike (bound, 嫌疑)",
+    "source": "zh_en_glossary"
+  },
+  "嫌弃": {
+    "confidence": "high",
+    "english": "to find distasteful, shun",
+    "source": "assistant-offline"
+  },
+  "嫌疑人": {
+    "confidence": "high",
+    "english": "suspect (criminal)",
+    "source": "assistant-offline"
+  },
+  "宇宙": {
+    "confidence": "high",
+    "english": "universe, cosmos",
+    "source": "assistant-offline"
+  },
+  "安保": {
+    "confidence": "high",
+    "english": "security (provision, services)",
+    "source": "assistant-offline"
+  },
+  "安慰": {
+    "confidence": "high",
+    "english": "to comfort, console",
+    "source": "assistant-offline"
+  },
+  "安防": {
+    "confidence": "high",
+    "english": "security and protection (as an industry)",
+    "source": "assistant-offline"
+  },
+  "官员": {
+    "confidence": "high",
+    "english": "government official",
+    "source": "assistant-offline"
+  },
+  "客房": {
+    "confidence": "high",
+    "english": "guest room",
+    "source": "assistant-offline"
+  },
+  "害怕": {
+    "confidence": "medium",
+    "english": "afraid, to fear",
+    "source": "zh_en_glossary"
+  },
+  "家人": {
+    "confidence": "high",
+    "english": "family members",
+    "source": "assistant-offline"
+  },
+  "寂寞": {
+    "confidence": "high",
+    "english": "lonely, lonesome",
+    "source": "assistant-offline"
+  },
+  "尊重": {
+    "confidence": "high",
+    "english": "respect",
+    "source": "assistant-offline"
+  },
+  "尖叫": {
+    "confidence": "medium",
+    "english": "scream",
+    "source": "zh_en_glossary"
+  },
+  "尴尬": {
+    "confidence": "high",
+    "english": "awkward, embarrassed",
+    "source": "assistant-offline"
+  },
+  "展示": {
+    "confidence": "high",
+    "english": "to display, showcase",
+    "source": "assistant-offline"
+  },
+  "屠杀": {
+    "confidence": "high",
+    "english": "massacre, slaughter",
+    "source": "assistant-offline"
+  },
+  "岁月": {
+    "confidence": "high",
+    "english": "the years, passing time",
+    "source": "assistant-offline"
+  },
+  "崩溃": {
+    "confidence": "medium",
+    "english": "collapse, breakdown",
+    "source": "zh_en_glossary"
+  },
+  "帅哥": {
+    "confidence": "medium",
+    "english": "handsome guy",
+    "source": "zh_en_glossary"
+  },
+  "帮你": {
+    "confidence": "high",
+    "english": "'help you' (帮 + 你)",
+    "source": "assistant-offline"
+  },
+  "幸福": {
+    "confidence": "high",
+    "english": "happiness; blessed, fortunate",
+    "source": "assistant-offline"
+  },
+  "幸福感": {
+    "confidence": "high",
+    "english": "sense of wellbeing, felt happiness",
+    "source": "assistant-offline"
+  },
+  "幽默": {
+    "confidence": "high",
+    "english": "humour",
+    "source": "assistant-offline"
+  },
+  "庆典": {
+    "confidence": "medium",
+    "english": "celebration, ceremony",
+    "source": "zh_en_glossary"
+  },
+  "康复": {
+    "confidence": "high",
+    "english": "to recuperate, convalesce",
+    "source": "assistant-offline"
+  },
+  "廉价": {
+    "confidence": "high",
+    "english": "cheap, low-priced (often pejorative)",
+    "source": "assistant-offline"
+  },
+  "开心": {
+    "confidence": "high",
+    "english": "happy, delighted",
+    "source": "assistant-offline"
+  },
+  "引爆": {
+    "confidence": "medium",
+    "english": "detonate, set off",
+    "source": "zh_en_glossary"
+  },
+  "强悍": {
+    "confidence": "high",
+    "english": "fierce, formidable",
+    "source": "assistant-offline"
+  },
+  "往事": {
+    "confidence": "high",
+    "english": "past events, bygones",
+    "source": "assistant-offline"
+  },
+  "征服": {
+    "confidence": "high",
+    "english": "to conquer",
+    "source": "assistant-offline"
+  },
+  "得罪": {
+    "confidence": "medium",
+    "english": "offend, give offence",
+    "source": "zh_en_glossary"
+  },
+  "忽悠": {
+    "confidence": "high",
+    "english": "to hoodwink, sweet-talk (colloquial)",
+    "source": "assistant-offline"
+  },
+  "怀念": {
+    "confidence": "high",
+    "english": "to miss, reminisce about",
+    "source": "assistant-offline"
+  },
+  "急剧": {
+    "confidence": "high",
+    "english": "sharply, drastically",
+    "source": "assistant-offline"
+  },
+  "恋": {
+    "confidence": "medium",
+    "english": "romantic love; bound char of 恋爱",
+    "source": "assistant-offline"
+  },
+  "恋爱": {
+    "confidence": "high",
+    "english": "to be in love; a romance",
+    "source": "assistant-offline"
+  },
+  "恐怖": {
+    "confidence": "high",
+    "english": "terror, horror",
+    "source": "assistant-offline"
+  },
+  "恐惧": {
+    "confidence": "high",
+    "english": "fear, dread",
+    "source": "assistant-offline"
+  },
+  "恐慌": {
+    "confidence": "medium",
+    "english": "panic",
+    "source": "zh_en_glossary"
+  },
+  "恶心": {
+    "confidence": "high",
+    "english": "disgusting, nauseating",
+    "source": "assistant-offline"
+  },
+  "悍": {
+    "confidence": "medium",
+    "english": "fierce, tough; bound char of 强悍",
+    "source": "assistant-offline"
+  },
+  "悠": {
+    "confidence": "medium",
+    "english": "leisurely / long-drawn; bound char of 悠闲, 悠久",
+    "source": "assistant-offline"
+  },
+  "悠闲": {
+    "confidence": "high",
+    "english": "leisurely, carefree",
+    "source": "assistant-offline"
+  },
+  "患者": {
+    "confidence": "high",
+    "english": "patient (medical)",
+    "source": "assistant-offline"
+  },
+  "悲伤": {
+    "confidence": "medium",
+    "english": "sadness, sorrow",
+    "source": "zh_en_glossary"
+  },
+  "悲剧": {
+    "confidence": "high",
+    "english": "tragedy",
+    "source": "assistant-offline"
+  },
+  "惊人": {
+    "confidence": "high",
+    "english": "astonishing, staggering",
+    "source": "assistant-offline"
+  },
+  "惊艳": {
+    "confidence": "high",
+    "english": "stunningly beautiful",
+    "source": "assistant-offline"
+  },
+  "惙": {
+    "confidence": "medium",
+    "english": "anxious, exhausted (rare classical char)",
+    "source": "zh_en_glossary"
+  },
+  "惩罚": {
+    "confidence": "high",
+    "english": "to punish; punishment",
+    "source": "assistant-offline"
+  },
+  "惬意": {
+    "confidence": "high",
+    "english": "pleasantly comfortable, contented",
+    "source": "assistant-offline"
+  },
+  "愉快": {
+    "confidence": "medium",
+    "english": "pleasant, cheerful",
+    "source": "zh_en_glossary"
+  },
+  "愉悦": {
+    "confidence": "high",
+    "english": "pleasure; delighted",
+    "source": "assistant-offline"
+  },
+  "感人": {
+    "confidence": "medium",
+    "english": "moving, touching",
+    "source": "zh_en_glossary"
+  },
+  "感动": {
+    "confidence": "high",
+    "english": "moved, touched emotionally",
+    "source": "assistant-offline"
+  },
+  "愤怒": {
+    "confidence": "medium",
+    "english": "anger, furious",
+    "source": "zh_en_glossary"
+  },
+  "懒": {
+    "confidence": "high",
+    "english": "lazy",
+    "source": "assistant-offline"
+  },
+  "才华": {
+    "confidence": "high",
+    "english": "talent, flair",
+    "source": "assistant-offline"
+  },
+  "扫黑除恶": {
+    "confidence": "medium",
+    "english": "crack down on gangs and evil (state campaign slogan)",
+    "source": "zh_en_glossary"
+  },
+  "批评": {
+    "confidence": "high",
+    "english": "to criticise",
+    "source": "assistant-offline"
+  },
+  "抄袭": {
+    "confidence": "high",
+    "english": "plagiarism, to plagiarise",
+    "source": "assistant-offline"
+  },
+  "抑郁症": {
+    "confidence": "medium",
+    "english": "depression (clinical)",
+    "source": "zh_en_glossary"
+  },
+  "抗议": {
+    "confidence": "high",
+    "english": "to protest",
+    "source": "assistant-offline"
+  },
+  "报复": {
+    "confidence": "high",
+    "english": "revenge, retaliation",
+    "source": "assistant-offline"
+  },
+  "抱怨": {
+    "confidence": "high",
+    "english": "to complain",
+    "source": "assistant-offline"
+  },
+  "担忧": {
+    "confidence": "high",
+    "english": "to worry; concern",
+    "source": "assistant-offline"
+  },
+  "拒绝": {
+    "confidence": "medium",
+    "english": "refuse, reject",
+    "source": "zh_en_glossary"
+  },
+  "拼命": {
+    "confidence": "medium",
+    "english": "desperately, with all one's might",
+    "source": "zh_en_glossary"
+  },
+  "指责": {
+    "confidence": "medium",
+    "english": "blame, accuse",
+    "source": "zh_en_glossary"
+  },
+  "挣扎": {
+    "confidence": "high",
+    "english": "to struggle",
+    "source": "assistant-offline"
+  },
+  "挫折": {
+    "confidence": "high",
+    "english": "setback, frustration",
+    "source": "assistant-offline"
+  },
+  "振奋": {
+    "confidence": "high",
+    "english": "to rouse, invigorate",
+    "source": "assistant-offline"
+  },
+  "探索": {
+    "confidence": "high",
+    "english": "to explore",
+    "source": "assistant-offline"
+  },
+  "探访": {
+    "confidence": "high",
+    "english": "to visit, call on",
+    "source": "assistant-offline"
+  },
+  "揭露": {
+    "confidence": "high",
+    "english": "to expose, bring to light",
+    "source": "assistant-offline"
+  },
+  "搞笑": {
+    "confidence": "high",
+    "english": "funny, comedic",
+    "source": "assistant-offline"
+  },
+  "摄影作品": {
+    "confidence": "high",
+    "english": "photographic work",
+    "source": "assistant-offline"
+  },
+  "摄影师": {
+    "confidence": "high",
+    "english": "photographer",
+    "source": "assistant-offline"
+  },
+  "摧毁": {
+    "confidence": "high",
+    "english": "to destroy, demolish",
+    "source": "assistant-offline"
+  },
+  "放松": {
+    "confidence": "high",
+    "english": "to relax",
+    "source": "assistant-offline"
+  },
+  "散步": {
+    "confidence": "high",
+    "english": "to take a walk",
+    "source": "assistant-offline"
+  },
+  "整改措施": {
+    "confidence": "high",
+    "english": "rectification measures (官方 official register)",
+    "source": "assistant-offline"
+  },
+  "文化交流": {
+    "confidence": "high",
+    "english": "cultural exchange",
+    "source": "assistant-offline"
+  },
+  "斧": {
+    "confidence": "high",
+    "english": "axe",
+    "source": "assistant-offline"
+  },
+  "旅程": {
+    "confidence": "high",
+    "english": "journey",
+    "source": "assistant-offline"
+  },
+  "旅途": {
+    "confidence": "medium",
+    "english": "journey",
+    "source": "zh_en_glossary"
+  },
+  "无力": {
+    "confidence": "medium",
+    "english": "powerless, weak",
+    "source": "zh_en_glossary"
+  },
+  "无助": {
+    "confidence": "high",
+    "english": "helpless",
+    "source": "assistant-offline"
+  },
+  "无数": {
+    "confidence": "medium",
+    "english": "countless",
+    "source": "zh_en_glossary"
+  },
+  "无比": {
+    "confidence": "high",
+    "english": "incomparably (intensifying suffix)",
+    "source": "assistant-offline"
+  },
+  "无法": {
+    "confidence": "high",
+    "english": "unable to, no way to",
+    "source": "assistant-offline"
+  },
+  "无聊": {
+    "confidence": "high",
+    "english": "bored; boring, tedious",
+    "source": "assistant-offline"
+  },
+  "时光": {
+    "confidence": "high",
+    "english": "time, days (nostalgic register)",
+    "source": "assistant-offline"
+  },
+  "昂贵": {
+    "confidence": "high",
+    "english": "expensive, costly",
+    "source": "assistant-offline"
+  },
+  "暖心": {
+    "confidence": "medium",
+    "english": "heartwarming",
+    "source": "zh_en_glossary"
+  },
+  "暴力": {
+    "confidence": "medium",
+    "english": "violence",
+    "source": "zh_en_glossary"
+  },
+  "暴涨": {
+    "confidence": "medium",
+    "english": "surge, soar sharply",
+    "source": "zh_en_glossary"
+  },
+  "暴跌": {
+    "confidence": "high",
+    "english": "to plummet (prices, markets)",
+    "source": "assistant-offline"
+  },
+  "有一些": {
+    "confidence": "high",
+    "english": "'there are some'",
+    "source": "assistant-offline"
+  },
+  "有必要": {
+    "confidence": "high",
+    "english": "'it is necessary'",
+    "source": "assistant-offline"
+  },
+  "有望": {
+    "confidence": "high",
+    "english": "promising, likely to",
+    "source": "assistant-offline"
+  },
+  "有毒": {
+    "confidence": "medium",
+    "english": "toxic, poisonous",
+    "source": "zh_en_glossary"
+  },
+  "有点": {
+    "confidence": "high",
+    "english": "'a bit, somewhat'",
+    "source": "assistant-offline"
+  },
+  "未能": {
+    "confidence": "high",
+    "english": "failed to, was unable to",
+    "source": "assistant-offline"
+  },
+  "杀人": {
+    "confidence": "high",
+    "english": "to kill a person; homicide",
+    "source": "assistant-offline"
+  },
+  "杀死": {
+    "confidence": "high",
+    "english": "to kill (something) dead",
+    "source": "assistant-offline"
+  },
+  "杳": {
+    "confidence": "low",
+    "english": "vanished without trace; bound, as in 杳无音信",
+    "source": "assistant-offline"
+  },
+  "柔和": {
+    "confidence": "medium",
+    "english": "soft, gentle",
+    "source": "zh_en_glossary"
+  },
+  "柔软": {
+    "confidence": "high",
+    "english": "soft, supple",
+    "source": "assistant-offline"
+  },
+  "根本没有": {
+    "confidence": "high",
+    "english": "'there is none at all'",
+    "source": "assistant-offline"
+  },
+  "桌子": {
+    "confidence": "high",
+    "english": "table",
+    "source": "assistant-offline"
+  },
+  "楼层": {
+    "confidence": "high",
+    "english": "storey, floor of a building",
+    "source": "assistant-offline"
+  },
+  "欢乐": {
+    "confidence": "high",
+    "english": "joy, merriment",
+    "source": "assistant-offline"
+  },
+  "欢呼": {
+    "confidence": "medium",
+    "english": "cheer, acclaim",
+    "source": "zh_en_glossary"
+  },
+  "欢快": {
+    "confidence": "medium",
+    "english": "cheerful, lively",
+    "source": "zh_en_glossary"
+  },
+  "欣喜": {
+    "confidence": "medium",
+    "english": "delighted, glad",
+    "source": "zh_en_glossary"
+  },
+  "欣慰": {
+    "confidence": "high",
+    "english": "gratified; relieved and pleased",
+    "source": "assistant-offline"
+  },
+  "歧视": {
+    "confidence": "high",
+    "english": "discrimination",
+    "source": "assistant-offline"
+  },
+  "死亡": {
+    "confidence": "medium",
+    "english": "death",
+    "source": "zh_en_glossary"
+  },
+  "死去": {
+    "confidence": "high",
+    "english": "to die, pass away",
+    "source": "assistant-offline"
+  },
+  "残忍": {
+    "confidence": "high",
+    "english": "cruel, merciless",
+    "source": "assistant-offline"
+  },
+  "残酷": {
+    "confidence": "high",
+    "english": "cruel, brutal",
+    "source": "assistant-offline"
+  },
+  "毁灭": {
+    "confidence": "high",
+    "english": "annihilation, ruin",
+    "source": "assistant-offline"
+  },
+  "比较简单": {
+    "confidence": "high",
+    "english": "'relatively simple'",
+    "source": "assistant-offline"
+  },
+  "沉重": {
+    "confidence": "high",
+    "english": "heavy, weighed down (of grief)",
+    "source": "assistant-offline"
+  },
+  "没什么": {
+    "confidence": "high",
+    "english": "'nothing much, never mind'",
+    "source": "assistant-offline"
+  },
+  "没钱": {
+    "confidence": "high",
+    "english": "to have no money",
+    "source": "assistant-offline"
+  },
+  "治愈": {
+    "confidence": "high",
+    "english": "to heal; healing, comforting",
+    "source": "assistant-offline"
+  },
+  "治疗": {
+    "confidence": "high",
+    "english": "treatment; to treat medically",
+    "source": "assistant-offline"
+  },
+  "注意到": {
+    "confidence": "high",
+    "english": "to notice",
+    "source": "assistant-offline"
+  },
+  "泪水": {
+    "confidence": "high",
+    "english": "tears",
+    "source": "assistant-offline"
+  },
+  "活力": {
+    "confidence": "medium",
+    "english": "vitality, energy",
+    "source": "zh_en_glossary"
+  },
+  "活泼": {
+    "confidence": "medium",
+    "english": "lively, vivacious",
+    "source": "zh_en_glossary"
+  },
+  "派出所": {
+    "confidence": "high",
+    "english": "local police station",
+    "source": "assistant-offline"
+  },
+  "流氓": {
+    "confidence": "high",
+    "english": "hooligan, rogue; obscene, indecent",
+    "source": "assistant-offline"
+  },
+  "浪费": {
+    "confidence": "high",
+    "english": "to waste",
+    "source": "assistant-offline"
+  },
+  "消失": {
+    "confidence": "high",
+    "english": "to vanish, disappear",
+    "source": "assistant-offline"
+  },
+  "深厚的": {
+    "confidence": "high",
+    "english": "'deep, profound' + attributive 的",
+    "source": "assistant-offline"
+  },
+  "清新": {
+    "confidence": "high",
+    "english": "fresh, refreshing",
+    "source": "assistant-offline"
+  },
+  "温和": {
+    "confidence": "medium",
+    "english": "mild, gentle",
+    "source": "zh_en_glossary"
+  },
+  "温情": {
+    "confidence": "high",
+    "english": "warmth, tenderness",
+    "source": "assistant-offline"
+  },
+  "温暖": {
+    "confidence": "medium",
+    "english": "warm",
+    "source": "zh_en_glossary"
+  },
+  "温柔": {
+    "confidence": "medium",
+    "english": "tender, gentle",
+    "source": "zh_en_glossary"
+  },
+  "温馨": {
+    "confidence": "medium",
+    "english": "cosy, warm (of atmosphere)",
+    "source": "zh_en_glossary"
+  },
+  "漂": {
+    "confidence": "low",
+    "english": "to float, or to bleach; also first char of 漂亮 'pretty'",
+    "source": "assistant-offline"
+  },
+  "激情": {
+    "confidence": "high",
+    "english": "passion, fervour",
+    "source": "assistant-offline"
+  },
+  "火热": {
+    "confidence": "high",
+    "english": "fiery, red-hot",
+    "source": "assistant-offline"
+  },
+  "火爆": {
+    "confidence": "medium",
+    "english": "explosive, hot-tempered, booming",
+    "source": "zh_en_glossary"
+  },
+  "灵感": {
+    "confidence": "high",
+    "english": "inspiration",
+    "source": "assistant-offline"
+  },
+  "灾难": {
+    "confidence": "high",
+    "english": "disaster, catastrophe",
+    "source": "assistant-offline"
+  },
+  "炫": {
+    "confidence": "medium",
+    "english": "dazzle, flashy",
+    "source": "zh_en_glossary"
+  },
+  "炫耀": {
+    "confidence": "high",
+    "english": "to show off, flaunt",
+    "source": "assistant-offline"
+  },
+  "热烈": {
+    "confidence": "high",
+    "english": "ardent, enthusiastic",
+    "source": "assistant-offline"
+  },
+  "热血": {
+    "confidence": "high",
+    "english": "hot-blooded, impassioned",
+    "source": "assistant-offline"
+  },
+  "焦虑": {
+    "confidence": "high",
+    "english": "anxiety; anxious",
+    "source": "assistant-offline"
+  },
+  "照片": {
+    "confidence": "high",
+    "english": "photograph",
+    "source": "assistant-offline"
+  },
+  "熠": {
+    "confidence": "low",
+    "english": "glittering; bound char of 熠熠 'sparkling'",
+    "source": "assistant-offline"
+  },
+  "爆发": {
+    "confidence": "high",
+    "english": "to erupt, break out",
+    "source": "assistant-offline"
+  },
+  "爆款": {
+    "confidence": "high",
+    "english": "runaway bestseller (e-commerce slang)",
+    "source": "assistant-offline"
+  },
+  "爆炸": {
+    "confidence": "medium",
+    "english": "explosion",
+    "source": "zh_en_glossary"
+  },
+  "爱心": {
+    "confidence": "medium",
+    "english": "loving heart, compassion",
+    "source": "zh_en_glossary"
+  },
+  "爱情": {
+    "confidence": "high",
+    "english": "romantic love",
+    "source": "assistant-offline"
+  },
+  "物体": {
+    "confidence": "high",
+    "english": "physical object",
+    "source": "assistant-offline"
+  },
+  "牺牲": {
+    "confidence": "high",
+    "english": "to sacrifice; a casualty",
+    "source": "assistant-offline"
+  },
+  "狂欢": {
+    "confidence": "medium",
+    "english": "revelry, carnival",
+    "source": "zh_en_glossary"
+  },
+  "狠狠": {
+    "confidence": "medium",
+    "english": "fiercely, ruthlessly",
+    "source": "zh_en_glossary"
+  },
+  "狰": {
+    "confidence": "medium",
+    "english": "ferocious (bound morpheme, 狰狞)",
+    "source": "zh_en_glossary"
+  },
+  "猛地": {
+    "confidence": "high",
+    "english": "abruptly, with a jerk",
+    "source": "assistant-offline"
+  },
+  "猛然": {
+    "confidence": "high",
+    "english": "abruptly, all at once",
+    "source": "assistant-offline"
+  },
+  "珍贵": {
+    "confidence": "high",
+    "english": "precious",
+    "source": "assistant-offline"
+  },
+  "璀璨": {
+    "confidence": "medium",
+    "english": "resplendent, brilliant",
+    "source": "zh_en_glossary"
+  },
+  "甜美": {
+    "confidence": "medium",
+    "english": "sweet, lovely",
+    "source": "zh_en_glossary"
+  },
+  "甜蜜": {
+    "confidence": "medium",
+    "english": "sweet (affectionate)",
+    "source": "zh_en_glossary"
+  },
+  "生病": {
+    "confidence": "medium",
+    "english": "fall ill",
+    "source": "zh_en_glossary"
+  },
+  "田园": {
+    "confidence": "high",
+    "english": "rural, pastoral",
+    "source": "assistant-offline"
+  },
+  "疑似": {
+    "confidence": "high",
+    "english": "suspected to be, apparently",
+    "source": "assistant-offline"
+  },
+  "疑问": {
+    "confidence": "high",
+    "english": "doubt, open question",
+    "source": "assistant-offline"
+  },
+  "疯": {
+    "confidence": "medium",
+    "english": "mad, crazy; single char of 疯狂 'frenzied'",
+    "source": "assistant-offline"
+  },
+  "疯狂": {
+    "confidence": "medium",
+    "english": "crazy, frenzied",
+    "source": "zh_en_glossary"
+  },
+  "病人": {
+    "confidence": "high",
+    "english": "sick person, patient",
+    "source": "assistant-offline"
+  },
+  "痉": {
+    "confidence": "low",
+    "english": "spasm; bound char of 痉挛 'convulsion'",
+    "source": "assistant-offline"
+  },
+  "痊": {
+    "confidence": "medium",
+    "english": "to recover from illness; bound char of 痊愈",
+    "source": "assistant-offline"
+  },
+  "痛苦": {
+    "confidence": "medium",
+    "english": "pain, suffering",
+    "source": "zh_en_glossary"
+  },
+  "瘋": {
+    "confidence": "medium",
+    "english": "traditional form of 疯: mad, crazy",
+    "source": "assistant-offline"
+  },
+  "的历史": {
+    "confidence": "medium",
+    "english": "'...'s history' (的 + 历史)",
+    "source": "assistant-offline"
+  },
+  "的强大": {
+    "confidence": "medium",
+    "english": "'...'s power' (的 + 强大 'powerful')",
+    "source": "assistant-offline"
+  },
+  "的目光": {
+    "confidence": "medium",
+    "english": "'...'s gaze' (的 + 目光)",
+    "source": "assistant-offline"
+  },
+  "目睹": {
+    "confidence": "high",
+    "english": "to witness first-hand",
+    "source": "assistant-offline"
+  },
+  "睡眠": {
+    "confidence": "high",
+    "english": "sleep",
+    "source": "assistant-offline"
+  },
+  "研究人员": {
+    "confidence": "high",
+    "english": "researchers",
+    "source": "assistant-offline"
+  },
+  "砰": {
+    "confidence": "high",
+    "english": "bang, thud (onomatopoeia)",
+    "source": "assistant-offline"
+  },
+  "祝福": {
+    "confidence": "high",
+    "english": "blessing; to wish well",
+    "source": "assistant-offline"
+  },
+  "神奇": {
+    "confidence": "high",
+    "english": "magical, marvellous",
+    "source": "assistant-offline"
+  },
+  "神秘": {
+    "confidence": "high",
+    "english": "mysterious",
+    "source": "assistant-offline"
+  },
+  "神话": {
+    "confidence": "high",
+    "english": "myth, legend",
+    "source": "assistant-offline"
+  },
+  "科学": {
+    "confidence": "high",
+    "english": "science",
+    "source": "assistant-offline"
+  },
+  "科学家": {
+    "confidence": "medium",
+    "english": "scientist",
+    "source": "zh_en_glossary"
+  },
+  "稳固": {
+    "confidence": "high",
+    "english": "stable, firm",
+    "source": "assistant-offline"
+  },
+  "稳妥": {
+    "confidence": "high",
+    "english": "safe and reliable, prudent",
+    "source": "assistant-offline"
+  },
+  "突如其": {
+    "confidence": "high",
+    "english": "fragment of 突如其来 'out of nowhere, sudden'",
+    "source": "assistant-offline"
+  },
+  "突然": {
+    "confidence": "high",
+    "english": "suddenly",
+    "source": "assistant-offline"
+  },
+  "等待": {
+    "confidence": "high",
+    "english": "to wait",
+    "source": "assistant-offline"
+  },
+  "精彩的": {
+    "confidence": "high",
+    "english": "'brilliant, spectacular' + attributive 的",
+    "source": "assistant-offline"
+  },
+  "精湛": {
+    "confidence": "high",
+    "english": "consummate, exquisite (of skill)",
+    "source": "assistant-offline"
+  },
+  "糟糕": {
+    "confidence": "high",
+    "english": "terrible, awful",
+    "source": "assistant-offline"
+  },
+  "紧急": {
+    "confidence": "high",
+    "english": "urgent, emergency",
+    "source": "assistant-offline"
+  },
+  "纪念": {
+    "confidence": "high",
+    "english": "to commemorate; a memento",
+    "source": "assistant-offline"
+  },
+  "细腻": {
+    "confidence": "high",
+    "english": "delicate, fine-grained",
+    "source": "assistant-offline"
+  },
+  "绚丽": {
+    "confidence": "medium",
+    "english": "gorgeous, splendid",
+    "source": "zh_en_glossary"
+  },
+  "绝佳": {
+    "confidence": "high",
+    "english": "excellent, first-rate",
+    "source": "assistant-offline"
+  },
+  "绝望": {
+    "confidence": "medium",
+    "english": "despair, hopeless",
+    "source": "zh_en_glossary"
+  },
+  "统统": {
+    "confidence": "high",
+    "english": "entirely, the whole lot",
+    "source": "assistant-offline"
+  },
+  "缺乏": {
+    "confidence": "medium",
+    "english": "lack, deficiency",
+    "source": "zh_en_glossary"
+  },
+  "缺席": {
+    "confidence": "high",
+    "english": "absent, absence",
+    "source": "assistant-offline"
+  },
+  "网红": {
+    "confidence": "high",
+    "english": "internet celebrity, influencer",
+    "source": "assistant-offline"
+  },
+  "罚款": {
+    "confidence": "high",
+    "english": "fine, monetary penalty",
+    "source": "assistant-offline"
+  },
+  "罪": {
+    "confidence": "medium",
+    "english": "crime, guilt, sin",
+    "source": "zh_en_glossary"
+  },
+  "罵": {
+    "confidence": "medium",
+    "english": "scold, curse (traditional form of 骂)",
+    "source": "zh_en_glossary"
+  },
+  "美丽的": {
+    "confidence": "high",
+    "english": "'beautiful' + attributive 的",
+    "source": "assistant-offline"
+  },
+  "美味": {
+    "confidence": "medium",
+    "english": "delicious",
+    "source": "zh_en_glossary"
+  },
+  "美好": {
+    "confidence": "high",
+    "english": "fine, lovely (of times, things)",
+    "source": "assistant-offline"
+  },
+  "美好的": {
+    "confidence": "high",
+    "english": "'fine, lovely' + attributive 的",
+    "source": "assistant-offline"
+  },
+  "美妙": {
+    "confidence": "medium",
+    "english": "wonderful, marvellous",
+    "source": "zh_en_glossary"
+  },
+  "美食": {
+    "confidence": "high",
+    "english": "fine food, delicacies",
+    "source": "assistant-offline"
+  },
+  "耀眼": {
+    "confidence": "high",
+    "english": "dazzling",
+    "source": "assistant-offline"
+  },
+  "老人": {
+    "confidence": "high",
+    "english": "elderly person",
+    "source": "assistant-offline"
+  },
+  "老头": {
+    "confidence": "high",
+    "english": "old man (colloquial, familiar)",
+    "source": "assistant-offline"
+  },
+  "老板": {
+    "confidence": "high",
+    "english": "boss, proprietor",
+    "source": "assistant-offline"
+  },
+  "考古": {
+    "confidence": "high",
+    "english": "archaeology",
+    "source": "assistant-offline"
+  },
+  "耐心": {
+    "confidence": "high",
+    "english": "patience",
+    "source": "assistant-offline"
+  },
+  "腐败": {
+    "confidence": "high",
+    "english": "corruption; rotten",
+    "source": "assistant-offline"
+  },
+  "自豪": {
+    "confidence": "high",
+    "english": "proud (of)",
+    "source": "assistant-offline"
+  },
+  "至於": {
+    "confidence": "high",
+    "english": "traditional form of 至于: as for, as to",
+    "source": "assistant-offline"
+  },
+  "致命": {
+    "confidence": "high",
+    "english": "fatal, lethal",
+    "source": "assistant-offline"
+  },
+  "苦难": {
+    "confidence": "high",
+    "english": "suffering, hardship",
+    "source": "assistant-offline"
+  },
+  "莫名其": {
+    "confidence": "high",
+    "english": "fragment of 莫名其妙 'inexplicable, baffling'",
+    "source": "assistant-offline"
+  },
+  "血腥": {
+    "confidence": "medium",
+    "english": "bloody, gory",
+    "source": "zh_en_glossary"
+  },
+  "被迫": {
+    "confidence": "high",
+    "english": "to be forced to",
+    "source": "assistant-offline"
+  },
+  "諮詢": {
+    "confidence": "high",
+    "english": "traditional form of 咨询: consultation, advisory",
+    "source": "assistant-offline"
+  },
+  "警告": {
+    "confidence": "medium",
+    "english": "warning",
+    "source": "zh_en_glossary"
+  },
+  "警察": {
+    "confidence": "high",
+    "english": "police officer",
+    "source": "assistant-offline"
+  },
+  "警方": {
+    "confidence": "high",
+    "english": "the police (as an institution)",
+    "source": "assistant-offline"
+  },
+  "讨厌": {
+    "confidence": "high",
+    "english": "to dislike; annoying",
+    "source": "assistant-offline"
+  },
+  "讨论": {
+    "confidence": "high",
+    "english": "to discuss",
+    "source": "assistant-offline"
+  },
+  "记忆": {
+    "confidence": "high",
+    "english": "memory",
+    "source": "assistant-offline"
+  },
+  "讽刺": {
+    "confidence": "medium",
+    "english": "irony, sarcasm",
+    "source": "zh_en_glossary"
+  },
+  "词语": {
+    "confidence": "high",
+    "english": "word, term",
+    "source": "assistant-offline"
+  },
+  "询问": {
+    "confidence": "high",
+    "english": "to inquire, question",
+    "source": "assistant-offline"
+  },
+  "诬": {
+    "confidence": "medium",
+    "english": "to falsely accuse; bound, as in 诬告, 诬陷",
+    "source": "assistant-offline"
+  },
+  "说不定": {
+    "confidence": "high",
+    "english": "'maybe, who knows'",
+    "source": "assistant-offline"
+  },
+  "谜": {
+    "confidence": "high",
+    "english": "riddle, mystery",
+    "source": "assistant-offline"
+  },
+  "谴责": {
+    "confidence": "high",
+    "english": "to condemn, denounce",
+    "source": "assistant-offline"
+  },
+  "豪车": {
+    "confidence": "high",
+    "english": "luxury car",
+    "source": "assistant-offline"
+  },
+  "负担": {
+    "confidence": "high",
+    "english": "burden",
+    "source": "assistant-offline"
+  },
+  "负面": {
+    "confidence": "high",
+    "english": "negative (side, coverage)",
+    "source": "assistant-offline"
+  },
+  "质疑": {
+    "confidence": "high",
+    "english": "to question, call into doubt",
+    "source": "assistant-offline"
+  },
+  "资料显示": {
+    "confidence": "high",
+    "english": "'the data show' (news phrase)",
+    "source": "assistant-offline"
+  },
+  "赚钱": {
+    "confidence": "high",
+    "english": "to make money",
+    "source": "assistant-offline"
+  },
+  "赢家": {
+    "confidence": "high",
+    "english": "winner",
+    "source": "assistant-offline"
+  },
+  "超强": {
+    "confidence": "high",
+    "english": "super-strong, ultra-powerful",
+    "source": "assistant-offline"
+  },
+  "蹿": {
+    "confidence": "medium",
+    "english": "to shoot up, leap (of prices, flames)",
+    "source": "assistant-offline"
+  },
+  "轻松": {
+    "confidence": "high",
+    "english": "relaxed, effortless",
+    "source": "assistant-offline"
+  },
+  "辉煌": {
+    "confidence": "high",
+    "english": "brilliant, glorious",
+    "source": "assistant-offline"
+  },
+  "迅猛": {
+    "confidence": "medium",
+    "english": "swift and fierce",
+    "source": "zh_en_glossary"
+  },
+  "近年": {
+    "confidence": "high",
+    "english": "in recent years",
+    "source": "assistant-offline"
+  },
+  "这家伙": {
+    "confidence": "high",
+    "english": "'this guy', this fellow",
+    "source": "assistant-offline"
+  },
+  "退休": {
+    "confidence": "high",
+    "english": "to retire",
+    "source": "assistant-offline"
+  },
+  "那边": {
+    "confidence": "high",
+    "english": "over there",
+    "source": "assistant-offline"
+  },
+  "重启": {
+    "confidence": "high",
+    "english": "to restart, reboot",
+    "source": "assistant-offline"
+  },
+  "铭记": {
+    "confidence": "high",
+    "english": "to engrave in memory, never forget",
+    "source": "assistant-offline"
+  },
+  "锃": {
+    "confidence": "low",
+    "english": "gleaming, polished; bound char of 锃亮",
+    "source": "assistant-offline"
+  },
+  "閒": {
+    "confidence": "high",
+    "english": "traditional form of 闲: idle, leisure",
+    "source": "assistant-offline"
+  },
+  "问责": {
+    "confidence": "high",
+    "english": "to hold to account",
+    "source": "assistant-offline"
+  },
+  "问题是": {
+    "confidence": "high",
+    "english": "'the problem is'",
+    "source": "assistant-offline"
+  },
+  "闺蜜": {
+    "confidence": "high",
+    "english": "close female friend",
+    "source": "assistant-offline"
+  },
+  "防止": {
+    "confidence": "high",
+    "english": "to prevent, guard against",
+    "source": "assistant-offline"
+  },
+  "陈述": {
+    "confidence": "high",
+    "english": "to state; a statement",
+    "source": "assistant-offline"
+  },
+  "院子里": {
+    "confidence": "high",
+    "english": "in the courtyard",
+    "source": "assistant-offline"
+  },
+  "隐蔽": {
+    "confidence": "high",
+    "english": "concealed, covert",
+    "source": "assistant-offline"
+  },
+  "难忘": {
+    "confidence": "high",
+    "english": "unforgettable",
+    "source": "assistant-offline"
+  },
+  "震惊": {
+    "confidence": "medium",
+    "english": "shocked, stunned",
+    "source": "zh_en_glossary"
+  },
+  "震撼": {
+    "confidence": "high",
+    "english": "to shake, stun; stunning",
+    "source": "assistant-offline"
+  },
+  "霸气": {
+    "confidence": "high",
+    "english": "domineering, commanding presence",
+    "source": "assistant-offline"
+  },
+  "靓丽": {
+    "confidence": "high",
+    "english": "pretty, gorgeous",
+    "source": "assistant-offline"
+  },
+  "静静": {
+    "confidence": "high",
+    "english": "quietly, silently",
+    "source": "assistant-offline"
+  },
+  "顾问": {
+    "confidence": "high",
+    "english": "advisor, consultant",
+    "source": "assistant-offline"
+  },
+  "颜值": {
+    "confidence": "high",
+    "english": "'face value', physical attractiveness (slang)",
+    "source": "assistant-offline"
+  },
+  "飙升": {
+    "confidence": "medium",
+    "english": "soar, skyrocket",
+    "source": "zh_en_glossary"
+  },
+  "饮品": {
+    "confidence": "high",
+    "english": "drinks, beverages",
+    "source": "assistant-offline"
+  },
+  "骂": {
+    "confidence": "medium",
+    "english": "scold, curse",
+    "source": "zh_en_glossary"
+  },
+  "骄傲": {
+    "confidence": "high",
+    "english": "proud; pride, arrogance",
+    "source": "assistant-offline"
+  },
+  "高价": {
+    "confidence": "high",
+    "english": "high price",
+    "source": "assistant-offline"
+  },
+  "魅力": {
+    "confidence": "high",
+    "english": "charm, allure",
+    "source": "assistant-offline"
+  },
+  "黑名单": {
+    "confidence": "medium",
+    "english": "blacklist",
+    "source": "zh_en_glossary"
+  },
+  "黑恶势力": {
+    "confidence": "medium",
+    "english": "criminal gangs and evil forces (state campaign term)",
+    "source": "zh_en_glossary"
+  },
+  "鼓舞": {
+    "confidence": "high",
+    "english": "to inspire, hearten",
+    "source": "assistant-offline"
+  }
+}

@@ -40,6 +40,7 @@ STAGES = {
     "phase6_decompose": "emotion_pca_jlens.phase6_decompose",
     "phase7_channels": "emotion_pca_jlens.phase7_channels",
     "phase8_steer": "emotion_pca_jlens.phase8_steer",
+    "phase9_clamp": "emotion_pca_jlens.phase9_clamp",
     "refit_lens": "emotion_pca_jlens.refit_lens",
     "r2": "core.r2",
 }
@@ -73,6 +74,8 @@ ALIASES = {
     "channels": "phase7_channels",
     "phase8": "phase8_steer",
     "steer": "phase8_steer",
+    "phase9": "phase9_clamp",
+    "clamp": "phase9_clamp",
 }
 
 USAGE = f"""usage: python run.py <stage> [args...]
@@ -91,6 +94,7 @@ stages:
   phase6_decompose      reportable / remainder split (GATE)   (needs the GPU)
   phase7_channels       report + behaviour channels (GATE)    (GPU + a judge)
   phase8_steer          4 conditions x 2 channels (GATE)      (GPU + a judge)
+  phase9_clamp          the re-entry clamp (GATE)             (GPU + a judge)
   r2                    Cloudflare R2 mirroring CLI (push/pull/ls/check)
 
 `all` covers only the three mean-difference stages. The emotion-space PCA +
@@ -115,6 +119,8 @@ that wants a human to look at it before the next phase runs:
   python run.py phase7                   # build + validate the channels
   python run.py phase8 --dry-run         # grid shape + cost; no weights
   python run.py phase8                   # the 4x2 grid
+  python run.py phase9 --verify-only     # does the clamp work at all
+  python run.py phase9                   # the decisive cell
 
 phase6 needs only phase2 and the phase0 lens, so phase5 can be skipped.
 

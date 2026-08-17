@@ -279,6 +279,48 @@ def model_input_device(model):
 # Text preparation
 # --------------------------------------------------------------------------- #
 
+def thinking_flag_effect(tokenizer, chat_role: str = "user") -> dict:
+    """Does ``enable_thinking`` actually change what this tokenizer renders?
+
+    Determined by **rendering the same message both ways and comparing**, not by
+    inspecting the template string. ``apply_chat_template`` forwards unknown keyword
+    arguments into the Jinja context and silently ignores them, so a template that has
+    never heard of ``enable_thinking`` accepts the flag without complaint -- and a gate
+    that printed ``enable_thinking=False`` on the strength of having passed it would be
+    reporting a setting that did nothing. This is the difference between "thinking is off"
+    and "we asked".
+
+    Returns ``supported`` plus whether either rendering opens a reasoning block, so a gate
+    can say which of the three states it is in.
+    """
+    if getattr(tokenizer, "chat_template", None) is None:
+        return {"supported": False, "reason": "no chat template"}
+    probe = [{"role": chat_role, "content": "probe"}]
+
+    def render(flag: bool | None) -> str | None:
+        kwargs = {} if flag is None else {"enable_thinking": flag}
+        try:
+            return tokenizer.apply_chat_template(
+                probe, tokenize=False, add_generation_prompt=True, **kwargs
+            )
+        except Exception:  # pragma: no cover - a template that rejects the kwarg outright
+            return None
+
+    default, enabled, disabled = render(None), render(True), render(False)
+    supported = (
+        enabled is not None and disabled is not None and enabled != disabled
+    )
+    return {
+        "supported": supported,
+        "default_opens_think_block": bool(default and "<think>" in default),
+        "enabled_opens_think_block": bool(enabled and "<think>" in enabled),
+        "disabled_opens_think_block": bool(disabled and "<think>" in disabled),
+        "default_matches_enabled": default == enabled,
+        "reason": "" if supported else "the template renders identically either way, so "
+                                       "the flag is a no-op here",
+    }
+
+
 def prepare_texts(
     stories: Sequence[str],
     tokenizer,
@@ -287,6 +329,7 @@ def prepare_texts(
     chat_add_generation_prompt: bool = False,
     prefix: str = "",
     suffix: str = "",
+    enable_thinking: bool = True,
 ) -> list[str]:
     """Turn raw stories into the exact strings that get tokenized.
 
@@ -295,6 +338,19 @@ def prepare_texts(
     exists for the later experimenter-binding work (assistant / first-person
     persona / third-person character conditions), where the story must sit inside
     a conversation.
+
+    ``enable_thinking`` defaults to ``True`` -- the template's own default, so existing
+    callers are unaffected -- and is forwarded only when
+    :func:`thinking_flag_effect` says the template responds to it.
+
+    **Why the flag exists.** Qwen3 is a hybrid reasoning model: its chat template opens a
+    ``<think>`` block unless told not to, so a generation budget is spent on reasoning
+    before any answer appears. At 150 new tokens with greedy decoding, nearly every
+    completion is a *truncated* reasoning trace -- and a truncated reasoning trace is
+    indistinguishable from an answer to a regex scorer. "Let me consider option A first"
+    is scored as choosing A. That is not a scoring bug that can be patched downstream: the
+    answer was never generated, so the fix has to be here, and the resolved value has to
+    be printed at every gate that generates.
     """
     texts = [f"{prefix}{s}{suffix}" for s in stories]
     if not use_chat_template:
@@ -305,11 +361,16 @@ def prepare_texts(
             f"use_chat_template=True but {tokenizer.name_or_path} has no chat template "
             "(base models usually do not). Use an -Instruct checkpoint or set it to False."
         )
+    kwargs = (
+        {"enable_thinking": enable_thinking}
+        if thinking_flag_effect(tokenizer, chat_role)["supported"] else {}
+    )
     return [
         tokenizer.apply_chat_template(
             [{"role": chat_role, "content": t}],
             tokenize=False,
             add_generation_prompt=chat_add_generation_prompt,
+            **kwargs,
         )
         for t in texts
     ]

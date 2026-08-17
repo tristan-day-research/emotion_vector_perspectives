@@ -90,6 +90,10 @@ from emotion_pca_jlens.channel_prompts import (
     MECHANICAL_SCORERS,
     REPORT_PROMPTS,
     REPORT_RUBRIC,
+    Completion,
+    completion_rate,
+    invalid_rates,
+    judge_precheck,
 )
 from emotion_pca_jlens.pca_jlens_config import PCAJLensConfig, load_config
 
@@ -222,7 +226,7 @@ def steering(model, block: int, vector, alpha: float, positions: str = "all"):
 
 def generate_batched(
     model, tokenizer, config: PCAJLensConfig, prompts: list[str]
-) -> list[str]:
+) -> list[Completion]:
     """Chat-formatted batched generation, one completion per prompt.
 
     **Left padding, set here rather than inherited.** ``load_tokenizer`` leaves the
@@ -232,8 +236,14 @@ def generate_batched(
     The failure is silent and survives every downstream check, so the side is set at
     the call site and restored afterwards.
 
-    Greedy, because the grid compares cells: sampling noise across 4 conditions x 4
-    strengths x 2 channels would need repeats per cell to see through.
+    Greedy, because the grid compares cells: sampling noise across the conditions,
+    strengths and channels would need repeats per cell to see through.
+
+    ``enable_thinking`` is forwarded from the config and is **off** by default: Qwen3's
+    template otherwise opens a ``<think>`` block, the budget goes on reasoning, and a
+    truncated reasoning trace scores as if it were an answer. Returns
+    :class:`Completion`, because whether the model stopped or ran out of budget is not
+    recoverable from the text and every scorer needs it.
 
     No truncation. These prompts are short literals from
     :mod:`emotion_pca_jlens.channel_prompts`, and truncating a task prompt would change
@@ -252,6 +262,7 @@ def generate_batched(
                 texts = model_utils.prepare_texts(
                     chunk, tokenizer, use_chat_template=True,
                     chat_add_generation_prompt=True,
+                    enable_thinking=config.enable_thinking,
                 )
                 encoded = tokenizer(texts, return_tensors="pt", padding=True).to(device)
                 generated = model.generate(
@@ -261,10 +272,17 @@ def generate_batched(
                     pad_token_id=tokenizer.pad_token_id,
                 )
                 width = encoded["input_ids"].shape[-1]
+                stops = {tokenizer.eos_token_id, tokenizer.pad_token_id} - {None}
                 for row in generated:
-                    outputs.append(
-                        tokenizer.decode(row[width:], skip_special_tokens=True)
-                    )
+                    ids = [int(t) for t in row[width:]]
+                    outputs.append(Completion(
+                        text=tokenizer.decode(row[width:], skip_special_tokens=True),
+                        # A run that stopped emitted a stop token; one that hit the cap
+                        # did not. Right-padding is impossible here (the side is left), so
+                        # a trailing pad token means generate() finished early.
+                        finished=any(i in stops for i in ids),
+                        n_new_tokens=len([i for i in ids if i not in stops]),
+                    ))
     finally:
         tokenizer.padding_side = previous_side
     return outputs
@@ -346,14 +364,13 @@ def load_emotion_directions(
         )
     tensors = load_file(str(config.decomposition_path))
     meta = json.loads(config.decomposition_meta_path.read_text(encoding="utf-8"))
-    if not meta.get("dictionary_valid", False):
+    if meta.get("write_space"):
         raise SystemExit(
-            f"{config.decomposition_meta_path} reports dictionary_valid=false (or "
-            "predates the\ncheck). Phase 6's atoms did not lens back to their own "
-            "tokens, so v_J is not the\npart the lens can verbalise and v_perp is not "
-            "the remainder -- steering with them\nwould produce a real behavioural "
-            "result about two arbitrary directions. Fix the\ndictionary first:\n\n"
-            "  python run.py phase6\n"
+            f"{config.decomposition_meta_path} was written by a write_space run.\n\n"
+            "Those v_J / v_perp are split by which directions most efficiently WRITE the "
+            "tokens,\nnot by which the lens reads them with, so a behavioural "
+            "dissociation between them\nwould not be about reportability. Re-run Phase 6 "
+            "without the ablation:\n\n  python run.py phase6\n"
         )
     emotions = list(meta["emotions"])
     block = int(meta.get("vectors", {}).get("target_block", -1))
@@ -366,6 +383,7 @@ def load_emotion_directions(
     if missing:
         raise SystemExit(f"{config.decomposition_path} lacks {missing}; re-run Phase 6.")
 
+    saved_k = str(meta.get("saved_k", config.n_dict_atoms))
     per_emotion = {
         row["emotion"]: row for row in meta.get("per_emotion", []) if "emotion" in row
     }
@@ -377,12 +395,16 @@ def load_emotion_directions(
         vectors = {
             key: np.asarray(tensors[key][index], dtype=np.float64) for key in CONDITIONS
         }
+        # The saved k, not any k: the tensors above are the split at exactly that k, and
+        # the fraction rises with k, so quoting another one would mislabel these vectors.
         row = per_emotion.get(emotion, {})
+        at_k = row.get("per_k", {}).get(saved_k, row)
         out.append(Directions(
             name=emotion, kind="emotion", report_emotion=emotion, vectors=vectors,
             norm=float(np.linalg.norm(vectors["v"])),
-            detail={"frac_reportable": row.get("frac_reportable"),
-                    "frac_remainder": row.get("frac_remainder")},
+            detail={"frac_reportable": at_k.get("frac_reportable"),
+                    "frac_remainder": at_k.get("frac_remainder"),
+                    "p_value_vs_random": at_k.get("p_value"), "k": saved_k},
         ))
     return out, block
 
@@ -447,24 +469,22 @@ def decompose_control(
 ) -> Directions:
     """Split the topic vector with the same pursuit Phase 6 used on the emotions.
 
-    Same dictionary construction, same atom budget, same norm matching, so the only
-    difference between this concept and an emotion is what it is about. Anything else
-    would leave a specificity difference attributable to the construction -- including
-    the pullback, which is Phase 6's truncated ``J^+`` at the same ``dict_pinv_rcond``
-    and not a transpose.
+    Same read-direction atoms, same ``k``, same norm matching, so the only difference
+    between this concept and an emotion is what it is about. Anything else would leave a
+    specificity difference attributable to the construction. ``k`` is ``n_dict_atoms``,
+    the one Phase 6 saved its tensors at -- the emotions Phase 8 steers with were split at
+    that ``k``, so the control has to be too.
     """
     from emotion_pca_jlens.phase6_decompose import (
         build_dictionary,
         decompose_vector,
-        factor_transport,
         match_norm,
         unembed_parts,
     )
 
     head, gain = unembed_parts(readout)
-    transport = factor_transport(readout, block, config.dict_pinv_rcond)
     dictionary = build_dictionary(
-        readout, vector, block, config.dict_pool_size, head, gain, transport
+        readout, vector, block, config.dict_pool_size, head, gain
     )
     result = decompose_vector(
         vector, dictionary, config.n_dict_atoms, config.pursuit_steps
@@ -516,14 +536,15 @@ def run_grid(
             t0 = time.time()
             with steering(model, block, concept.vectors[condition], alpha,
                           config.steer_positions):
-                report_texts = generate_batched(model, tokenizer, config, report_prompts)
-                behaviour_texts = generate_batched(
+                report_out = generate_batched(model, tokenizer, config, report_prompts)
+                behaviour_out = generate_batched(
                     model, tokenizer, config, behaviour_prompts
                 )
             # Outside the steering context: fluency is judged by the unmodified model,
             # or it measures the perturbation instead of the text.
             perplexities = perplexity(
-                model, tokenizer, config, report_texts + behaviour_texts
+                model, tokenizer, config,
+                [c.text for c in report_out] + [c.text for c in behaviour_out],
             )
             shared = alpha == 0.0
             common = {
@@ -531,17 +552,24 @@ def run_grid(
                 "report_emotion": concept.report_emotion,
                 "condition": condition, "alpha": alpha, "shared_baseline": shared,
             }
-            for i, (prompt, text) in enumerate(zip(report_prompts, report_texts)):
+            for i, (prompt, out) in enumerate(zip(report_prompts, report_out)):
                 rows.append({**common, "channel": "report", "family": "report",
-                             "prompt": prompt, "response": text,
+                             "prompt": prompt, "response": out.text,
+                             "finished": out.finished,
+                             "n_new_tokens": out.n_new_tokens,
                              "perplexity": perplexities[i]})
-            for j, (task, text) in enumerate(zip(BEHAVIOUR_TASKS, behaviour_texts)):
+            for j, (task, out) in enumerate(zip(BEHAVIOUR_TASKS, behaviour_out)):
                 rows.append({**common, "channel": "behaviour", "family": task.family,
-                             "prompt": task.prompt, "response": text,
-                             "perplexity": perplexities[len(report_texts) + j]})
+                             "prompt": task.prompt, "response": out.text,
+                             "finished": out.finished,
+                             "n_new_tokens": out.n_new_tokens,
+                             "perplexity": perplexities[len(report_out) + j]})
+            everything = list(report_out) + list(behaviour_out)
+            done = completion_rate(everything)
             label = f"{concept.name}/{CONDITION_LABELS[condition][0]}/a={alpha:g}"
-            print(f"  {label:<32} {len(report_texts) + len(behaviour_texts):>3} "
+            print(f"  {label:<32} {len(everything):>3} "
                   f"generations in {time.time() - t0:>5.0f}s"
+                  f"   {done['rate']:>4.0%} ended in EOS"
                   + ("   (shared baseline)" if shared else ""), flush=True)
     return rows
 
@@ -575,11 +603,24 @@ def score_grid(rows: list[dict], config: PCAJLensConfig, use_judge: bool) -> dic
         row["score"] = None
         row["scorer"] = None
         row["detail"] = ""
+        row["valid"] = False
+        row["reason"] = ""
+        truncated = not bool(row.get("finished", True))
         scorer = MECHANICAL_SCORERS.get(row["family"])
         if scorer is not None:
-            result = scorer(row["response"])
+            result = scorer(row["response"], truncated=truncated)
             row["score"], row["scorer"] = result["score"], "mechanical"
-            row["detail"] = result["detail"]
+            row["detail"], row["valid"] = result["detail"], bool(result["valid"])
+            row["reason"] = result.get("reason", "")
+            continue
+        # Judge families get the same precheck the mechanical ones do, BEFORE any call is
+        # paid for: a response that never reached an answer must not be scored 3 for
+        # "declined", nor 0 for "expresses none of this emotion". It expressed nothing
+        # because it said nothing.
+        precheck = judge_precheck(row["response"], truncated=truncated)
+        if precheck is not None:
+            row["scorer"] = "precheck"
+            row["detail"], row["reason"] = precheck["detail"], precheck["reason"]
 
     usage: dict = {"calls": 0, "input": 0, "output": 0, "cached": 0, "unusable": 0}
     if not use_judge:
@@ -594,14 +635,19 @@ def score_grid(rows: list[dict], config: PCAJLensConfig, use_judge: bool) -> dic
         print("  the report channel and the refusal family stay unscored.")
         return usage
 
+    def sendable(family_rows: list[dict]) -> list[dict]:
+        return [r for r in family_rows if r["scorer"] != "precheck"]
+
     jobs: list[tuple[str, str, tuple[int, ...], list[dict]]] = []
     for emotion in sorted({r["report_emotion"] for r in rows if r["family"] == "report"}):
-        jobs.append((
-            f"report[{emotion}]", REPORT_RUBRIC.format(emotion=emotion), (0, 1, 2, 3, 4),
-            [r for r in rows
-             if r["family"] == "report" and r["report_emotion"] == emotion],
-        ))
-    refusal = [r for r in rows if r["family"] == "refusal"]
+        targets = sendable([
+            r for r in rows
+            if r["family"] == "report" and r["report_emotion"] == emotion
+        ])
+        if targets:
+            jobs.append((f"report[{emotion}]",
+                         REPORT_RUBRIC.format(emotion=emotion), (0, 1, 2, 3, 4), targets))
+    refusal = sendable([r for r in rows if r["family"] == "refusal"])
     if refusal:
         jobs.append(("refusal", BEHAVIOUR_REFUSAL_RUBRIC, REFUSAL_SCORES, refusal))
 
@@ -619,10 +665,15 @@ def score_grid(rows: list[dict], config: PCAJLensConfig, use_judge: bool) -> dic
             verdict = verdicts.get(key)
             row["scorer"] = f"judge:{config.judge_model}"
             row["score"] = None if verdict is None else verdict.score
+            row["valid"] = bool(verdict is not None and verdict.usable)
             row["detail"] = "" if verdict is None else (
                 verdict.reason or verdict.error or ""
             )
-            if verdict is None or not verdict.usable:
+            if not row["valid"]:
+                row["reason"] = (
+                    "no verdict" if verdict is None
+                    else (verdict.error or "unusable verdict")
+                )
                 usage["unusable"] += 1
         usage["calls"] += judge.calls
         for key in ("input", "output", "cached"):
@@ -660,7 +711,13 @@ def family_table(frame: pd.DataFrame, config: PCAJLensConfig) -> pd.DataFrame:
     """
     if frame.empty:
         return frame
-    table = frame.groupby(
+    # Invalid rows carry score=None already, so `count` and `mean` skip them -- but the
+    # invalid COUNT is kept per cell, because "this cell averaged 0.8 over 2 of 4
+    # responses" is a different claim from "0.8 over 4".
+    working = frame.copy()
+    if "valid" in working:
+        working.loc[~working["valid"].astype(bool), "score"] = np.nan
+    table = working.groupby(
         ["concept", "kind", "channel", "family", "condition", "alpha"], dropna=False
     ).agg(
         n=("response", "size"),
@@ -668,6 +725,17 @@ def family_table(frame: pd.DataFrame, config: PCAJLensConfig) -> pd.DataFrame:
         score=("score", "mean"),
         perplexity=("perplexity", "mean"),
     ).reset_index()
+    if "valid" in working:
+        invalid_counts = working.assign(
+            invalid=~working["valid"].astype(bool)
+        ).groupby(
+            ["concept", "kind", "channel", "family", "condition", "alpha"], dropna=False
+        )["invalid"].sum().reset_index(name="n_invalid")
+        table = table.merge(
+            invalid_counts,
+            on=["concept", "kind", "channel", "family", "condition", "alpha"],
+            how="left",
+        )
 
     fluency = cell_fluency(frame, config)
     table = table.merge(
@@ -861,6 +929,14 @@ def print_verdict(
     print("  and layer -- is what would. If Phase 9 is not run, state this as a")
     print("  limitation rather than glossing it.")
     print()
+    print("  WHAT v_perp IS. Phase 6 built it as the residual of a k-sparse nonnegative")
+    print("  code, and that code's reachable set is a union of cones, not a linear")
+    print("  subspace. So v_perp is what that approximation missed AT THAT k, FROM THAT")
+    print("  POOL -- not an intrinsically unverbalizable component. A behavioural effect")
+    print("  under it is an effect of a direction the sparse code did not capture, which")
+    print("  is a weaker and more precise claim than 'an effect of something the model")
+    print("  cannot report'. Raising k would move the boundary and could move this result.")
+    print()
     print("  Two further limits belong beside any number above. The steering vectors")
     print("  were built from raw story text and applied to chat-formatted prompts, and")
     print("  transfer across that boundary is assumed rather than verified. And a lens")
@@ -901,7 +977,13 @@ def print_design(
     n_prompts: int, total_generations: int, judge_calls: int,
 ) -> None:
     print(f"model      : {config.model_name} ({config.dtype})")
-    print(f"phase 7    : {record_path.name}   separation PASS")
+    print(f"phase 7    : {record_path.name}   separation PASS, "
+          f"manipulation checks PASS")
+    print(f"             thinking was {thinking_record.get('resolved', 'unrecorded')} "
+          f"there; completion rate "
+          f"{checks.get('completion', {}).get('rate', float('nan')):.0%}")
+    print(f"thinking   : requested enable_thinking={config.enable_thinking} "
+          "(resolved once the tokenizer loads)")
     print(f"emotions   : {emotions}")
     print(f"block      : {block} (hidden state {jlens_lens.hidden_state_index(block)}), "
           "read from Phase 6's record --")
@@ -909,8 +991,10 @@ def print_design(
     print("             can point somewhere the decomposition was never fitted")
     for concept in directions:
         frac = concept.detail.get("frac_reportable")
+        p_value = concept.detail.get("p_value_vs_random")
         print(f"               {concept.name:<14} ||v|| {concept.norm:>8.2f}"
-              + (f"   v_J {frac:.1%} of variance" if frac else ""))
+              + (f"   v_J {frac:.1%} at k={concept.detail.get('k')}" if frac else "")
+              + (f", p={p_value:.4f} vs random" if p_value else ""))
     print(f"conditions : {len(CONDITIONS)}")
     for key in CONDITIONS:
         short, gloss = CONDITION_LABELS[key]
@@ -973,6 +1057,31 @@ def main(argv: list[str] | None = None) -> int:
             "affect\nvocabulary with the report channel and every number Phase 8 "
             "produced would be\nconfounded. Fix the rubric first:\n\n"
             "  python run.py phase7 --dry-run\n"
+        )
+    # Phase 7's manipulation checks gate here too. They previously *reported* that report,
+    # risk and persistence had no dynamic range, exited 0, and Phase 8 ran anyway -- hours
+    # of grid spent measuring families that could not move. A record without the checks at
+    # all is a pre-fix Phase 7 run and is refused for the same reason.
+    checks = record.get("manipulation_checks")
+    if not (checks or {}).get("passed", False):
+        detail = "the record predates the checks" if checks is None else (
+            f"invalid over ceiling: {checks.get('families_over_invalid_ceiling')}; "
+            f"no dynamic range: {checks.get('families_without_range')}"
+        )
+        raise SystemExit(
+            f"Phase 7's manipulation checks did not pass ({detail}).\n\n"
+            "A family with no dynamic range cannot show a steering effect, and a family "
+            "whose\nresponses are mostly unscoreable has no measurement to steer. Phase 8 "
+            "is hours of\ngeneration; it refuses to spend them on either. Re-run:\n\n"
+            "  python run.py phase7\n"
+        )
+    thinking_record = record.get("thinking", {})
+    if thinking_record.get("resolved") == "on":
+        raise SystemExit(
+            "Phase 7 ran with thinking mode ON.\n\n"
+            "Its baseline scores are then measurements of truncated reasoning traces, and "
+            "Phase 8\nwould be steering against them. Re-run Phase 7 with "
+            "enable_thinking=false (the\ndefault):\n\n  python run.py phase7\n"
         )
     emotions = (
         list(config.channel_emotions) if config.channel_emotions
@@ -1052,6 +1161,17 @@ def main(argv: list[str] | None = None) -> int:
         trust_remote_code=config.trust_remote_code,
     )
     print(f"  loaded in {time.time() - t0:.0f}s")
+    thinking = model_utils.thinking_flag_effect(tokenizer)
+    resolved_thinking = (
+        "off" if not config.enable_thinking and thinking["supported"]
+        else "on" if thinking["supported"] else "unsupported"
+    )
+    print(f"  thinking mode  : {resolved_thinking.upper()}   (requested "
+          f"enable_thinking={config.enable_thinking}; template responds: "
+          f"{thinking['supported']})")
+    if resolved_thinking != "off":
+        print(f"    {thinking.get('reason') or 'thinking is ON'} -- every generation below")
+        print("    may be a truncated reasoning trace rather than an answer.")
 
     # --- the specificity control ------------------------------------------- #
     control_name: str | None = None
@@ -1105,6 +1225,28 @@ def main(argv: list[str] | None = None) -> int:
     print(RULE)
     usage = score_grid(rows, config, use_judge=not args.no_judge)
 
+    invalid = invalid_rates(rows)
+    done = completion_rate([
+        Completion(text=r["response"], finished=bool(r.get("finished", True)),
+                   n_new_tokens=int(r.get("n_new_tokens") or 0))
+        for r in rows
+    ])
+    print()
+    print(f"  completion rate : {done['rate']:.1%} ({done['finished']}/{done['n']}) ended "
+          f"in EOS; median {done['median_new_tokens']:.0f} new tokens")
+    print(f"  {'family':<14}{'n':>6}{'invalid':>9}  top reason")
+    for family in sorted(invalid):
+        bucket = invalid[family]
+        print(f"  {family:<14}{bucket['n']:>6}{bucket['rate']:>8.0%}  "
+              + bucket["top_reason"][:44])
+    worst = max((b["rate"] for b in invalid.values()), default=0.0)
+    if worst > config.max_invalid_rate:
+        print(f"  WARNING: {worst:.0%} invalid exceeds the {config.max_invalid_rate:.0%} "
+              "ceiling Phase 7 was gated on.")
+        print("  Steering can legitimately break format compliance -- that is what the")
+        print("  fluency check is for -- but a cell scored over a handful of valid")
+        print("  responses is not a measurement. n_invalid is in the grid CSV per cell.")
+
     frame = pd.DataFrame(expand_baseline(rows))
     table = family_table(frame, config)
     summary = channel_summary(table)
@@ -1137,6 +1279,12 @@ def main(argv: list[str] | None = None) -> int:
     sections["summary"] = summary.to_dict(orient="records")
     sections["fluency"] = fluency.to_dict(orient="records")
     sections["judge_usage"] = usage
+    sections["invalid_rates"] = invalid
+    sections["completion"] = done
+    sections["thinking"] = {
+        "requested": config.enable_thinking, "template_effect": thinking,
+        "resolved": resolved_thinking,
+    }
     sections["specificity_control"] = {
         "topic": control_name,
         "skipped_reason": None if control_name else control_skipped,
@@ -1150,6 +1298,11 @@ def main(argv: list[str] | None = None) -> int:
                          "chat-formatted prompts; transfer is assumed, not verified",
         "reportability": "a lens readout is a disposition to say a word, so the report "
                          "channel measures reportability rather than felt experience",
+        "v_perp_is_k_dependent": "v_perp is the residual of a k-sparse nonnegative code, "
+                                 "whose reachable set is a union of cones rather than a "
+                                 "linear subspace, so it means 'missed by this "
+                                 "approximation at this k and pool', never "
+                                 "'intrinsically unverbalizable'",
         "behaviour_scale": "the four behaviour families are on incompatible scales, so "
                            "the channel summary is mean |z| in grid-SD units and the "
                            "raw per-family scores are the data",

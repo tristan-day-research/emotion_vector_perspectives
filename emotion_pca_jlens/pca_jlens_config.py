@@ -52,9 +52,11 @@ def _coerce_field(key: str, value: object, current: object) -> object:
       "emotion not present in the dataset". ``perspective_emotions`` and
       ``within_emotion_targets`` are the same shape and default to ``None``, where
       ``_coerce`` would hand back the raw string.
-    * ``sweep_blocks`` is polymorphic like ``gate_blocks``.
-    * ``steer_strengths`` is a tuple of floats that also accepts a JSON list, which
-      the shared helper's tuple branch does not handle.
+    * ``sweep_blocks`` and ``clamp_blocks`` are polymorphic like ``gate_blocks``.
+    * ``dict_atom_counts`` is a tuple of ints that also accepts a comma list, so
+      ``--set dict_atom_counts=16,25`` has to parse rather than becoming one string.
+    * ``steer_strengths`` and ``clamp_strengths`` are tuples of floats that also accept
+      a JSON list, which the shared helper's tuple branch does not handle.
     * ``specificity_topic`` defaults to ``None``, so "none" has to mean ``None``.
     * ``r2_sync`` must reject typos rather than defaulting them to "off"; see below.
     """
@@ -63,9 +65,12 @@ def _coerce_field(key: str, value: object, current: object) -> object:
     text = value.strip()
     if key == "target_block":
         return None if text.lower() in ("none", "null", "") else int(text)
-    if key in ("gate_blocks", "layer_spec", "sweep_blocks"):
+    if key in ("gate_blocks", "layer_spec", "sweep_blocks", "clamp_blocks"):
         return json.loads(text) if text.startswith("[") else text
-    if key == "steer_strengths":
+    if key == "dict_atom_counts":
+        parsed = json.loads(text) if text.startswith("[") else text.split(",")
+        return tuple(int(part) for part in parsed if str(part).strip() != "")
+    if key in ("steer_strengths", "clamp_strengths"):
         # A tuple of floats. _coerce would infer the element type from the current
         # value and cope, but only for the comma form -- `--set steer_strengths=[0,1]`
         # would reach validate() as the string "[0,1]" and compare > 0 against a str.
@@ -449,9 +454,18 @@ class PCAJLensConfig:
     experiments' robustness checks mean the same thing."""
 
     # ------------------------------------------------ phase 6 decomposition - #
-    n_dict_atoms: int = 20
-    """Atoms in the sparse nonnegative reconstruction of each emotion vector. The
-    brief's k ~ 16-25."""
+    dict_atom_counts: object = (16, 25)
+    """Atom counts ``k`` the gate reports, both of them. The paper's settings.
+
+    Reported as a pair rather than picked, because under sparse nonnegative coding the
+    reconstructable set is a union of cones, not a subspace -- so the "reportable
+    fraction" is a function of ``k`` and quoting one value hides that. Two values make
+    the dependence visible in the table."""
+
+    n_dict_atoms: int = 16
+    """The ``k`` the *saved* ``v_J`` / ``v_perp`` tensors use, and the one Phase 8 steers
+    with. Must be one of :attr:`dict_atom_counts`; recorded in the sidecar so a reader
+    cannot mistake which ``k`` the artefact is at."""
 
     dict_pool_size: int = 512
     """Candidate atoms considered, taken as the top-N tokens of the vector's own lens
@@ -469,34 +483,52 @@ class PCAJLensConfig:
     size is 1/L from the Gram matrix's spectral norm, so this is not a tuning knob --
     it only has to be enough to converge."""
 
-    dict_pinv_rcond: float = 1e-2
-    """Relative singular-value cutoff for the pseudo-inverse of ``J``.
+    write_space: bool = False
+    """Ablation: build atoms from ``J^+`` (write directions) instead of ``J^T`` (read).
 
-    A dictionary atom has to satisfy ``J d_t = g * w_t``, so building it needs ``J^-1``,
-    not ``J^T`` -- the two agree only for an orthogonal ``J``, and an averaged Jacobian
-    is not orthogonal. ``J`` is inverted by SVD with every singular value below
-    ``dict_pinv_rcond * s_max`` discarded (numpy's ``pinv`` convention).
+    Off by default, because reportability is a **reading** question. The lens score for
+    token ``t`` is ``u_t' J h = (J^T u_t)' h``, so ``J^T u_t`` *is* the measurement weight
+    vector the lens reads ``t`` with, and anything orthogonal to every ``J^T u_t`` moves
+    no logit at all. ``J^+ u_t`` is a different direction: the one that most efficiently
+    *writes* token ``t``. Both are real questions; only the first is "how much of this
+    vector can the lens see".
 
-    **The main free parameter of the dictionary, not a numerical safeguard.** ``J^+``
-    amplifies each right-singular direction by ``1/s``, so the directions ``J`` nearly
-    annihilates dominate every atom, and because atoms are unit-normalised afterwards the
-    amplification does not wash out -- it becomes the atom. Truncating bounds that
-    amplification at ``1 / dict_pinv_rcond`` relative to the leading direction; the
-    default bounds it at 100x, which is the only claim being made for the value.
-
-    It is a starting point, not a fitted one: the right cutoff depends on the lens's
-    spectrum, which is a property of the fitted ``J`` and not knowable in advance. So
-    Phase 6 prints ``cond(J)``, the retained rank and the atom coherence, and on a failed
-    atom-validity check sweeps this field and names the value to use.
+    On, the whole gate re-runs against write directions and every line of output is
+    labelled ``write_space``. It is kept because the write question is interesting on its
+    own -- which part of an emotion vector would most efficiently *produce* its words --
+    and because keeping it runnable is what stops the two from being conflated again.
     """
 
-    n_random_controls: int = 16
+    dict_pinv_rcond: float = 1e-2
+    """Relative singular-value cutoff for the pseudo-inverse of ``J``. **Used only when
+    :attr:`write_space` is set**; the default read-direction path needs no inverse.
+
+    ``J^+`` amplifies each right-singular direction by ``1/s``, so the directions ``J``
+    nearly annihilates dominate every atom, and because atoms are unit-normalised
+    afterwards the amplification does not wash out -- it becomes the atom. Truncating at
+    ``dict_pinv_rcond * s_max`` (numpy's ``pinv`` convention) bounds that amplification at
+    ``1 / dict_pinv_rcond`` relative to the leading direction; the default bounds it at
+    100x, which is the only claim being made for the value. The right cutoff depends on
+    the fitted lens's spectrum, so ``write_space`` runs print ``cond(J)`` and the retained
+    rank.
+    """
+
+    n_random_controls: int = 500
     """Matched-norm random directions put through the identical decomposition.
 
-    The number that makes the headline interpretable. "``v_J`` holds 8% of the
-    variance" means nothing without knowing what ``k`` atoms capture from a direction
-    with no structure at all; if random also lands at 8%, the decomposition has
-    measured its own degrees of freedom rather than anything about emotion.
+    **The gate itself**, not a footnote. "``v_J`` holds 8% of the variance" means nothing
+    without knowing what ``k`` atoms capture from a direction with no structure at all; if
+    random also lands at 8%, the decomposition has measured its own degrees of freedom.
+    The comparison against this null -- ratio and p-value per emotion -- is the only claim
+    the method supports.
+
+    500 rather than a handful because it sets the p-value's resolution, and the resolution
+    has to clear the *corrected* threshold. The Monte-Carlo estimator floors at
+    ``1 / (n + 1)``; the gate's alpha is Bonferroni-corrected across the emotions, so with
+    16 of them it is ``0.05 / 16 = 0.0031``. 16 controls could never report below 0.059
+    and 200 could never report below 0.005 -- both are *incapable* of a significant
+    result, whatever the data. 500 floors at 0.002, which clears it. The gate prints the
+    floor beside the threshold and says TOO COARSE when it does not.
     """
 
     frac_j_expected_max: float = 0.30
@@ -524,7 +556,7 @@ class PCAJLensConfig:
     score shift could be the judge moving rather than the behaviour. This is a real
     API dependency and a real cost line."""
 
-    generation_max_new_tokens: int = 150
+    generation_max_new_tokens: int = 256
     """Decode steps per sample. The brief's ~150, and the reason Phases 7-9 are the
     expensive part: a forward pass is one step, this is 150 sequential ones."""
 
@@ -556,6 +588,22 @@ class PCAJLensConfig:
     disposition, which is why the perplexity check runs at every strength.
     """
 
+    enable_thinking: bool = False
+    """Forwarded to ``apply_chat_template`` by Phases 7-9. **Off**, unlike the template's
+    own default.
+
+    Qwen3 is a hybrid reasoning model and its chat template opens a ``<think>`` block
+    unless told not to, so the generation budget goes on reasoning before any answer
+    appears. Left on, at any plausible ``generation_max_new_tokens``, most completions are
+    *truncated* reasoning traces -- and a truncated trace is indistinguishable from an
+    answer to a regex scorer, which reads "let me consider option A" as choosing A. This
+    already invalidated a Phase 7 and a Phase 8 run: ~7.5% of responses reached
+    ``</think>`` and none of the behavioural ones did.
+
+    Every gate that generates prints the *resolved* state -- off, on, or unsupported by
+    this template -- because ``apply_chat_template`` ignores keyword arguments its
+    template does not use, so passing the flag is not evidence that it took effect."""
+
     generation_batch_size: int = 8
     """Prompts generated concurrently. Generation is ~150 sequential decode steps per
     sample and the dominant cost of Phases 7-9, so batching is the difference between
@@ -577,12 +625,73 @@ class PCAJLensConfig:
     pay interactive rates. Phase 7 scores interactively because there the point is to
     see a rubric's output now."""
 
+    max_invalid_rate: float = 0.10
+    """Share of a task family's responses that may be unscoreable before Phase 7 aborts.
+
+    A hard gate, not a report. Truncated, empty and format-non-conforming responses used
+    to be *scored* -- the first standalone letter in an unfinished reasoning trace became a
+    risk choice -- so the invalid rate was 0% by construction and the failure was
+    invisible. Now every scorer can return INVALID, and a family that cannot be scored
+    reliably has to stop the pipeline rather than hand Phase 8 a number.
+    """
+
     perplexity_max_ratio: float = 1.5
     """Perplexity ratio (steered / unsteered) above which a cell counts as degraded.
 
     The gate that stops "behaviour changed" from being "the output fell apart". A
     behavioural score means nothing at a strength where the text stopped being
     fluent, and the grid marks those cells rather than averaging them in."""
+
+    # ------------------------------------------- phase 9 the re-entry clamp - #
+    clamp_blocks: object = "all"
+    """Blocks whose J-space coordinates are held at clean-pass values. Same grammar as
+    ``gate_blocks``, resolved over the lens's fitted blocks.
+
+    ``all`` is the default and the only setting that answers the question. Re-entry is
+    downstream layers re-deriving the concept, so a clamp that skips layers leaves it
+    exactly the room it needs -- a partial clamp cannot distinguish "the effect bypassed
+    the workspace" from "the effect re-entered at block 41". Narrower specs exist for
+    the layer-attribution follow-up (*where* does re-entry happen), not for the decisive
+    cell, and Phase 9 marks any run that is not ``all`` as not decisive.
+    """
+
+    clamp_token_count: int = 24
+    """Atom tokens from Phase 6's ``v_J`` that define the emotion's J-subspace, on top of
+    the emotion word's own single-token variants.
+
+    The subspace is ``span{J_l^T (g * w_t)}`` over that token set, per block: those are
+    the directions the lens reads those tokens with, so holding the residual's component
+    in them fixed is exactly "the lens sees no change in this concept". Too few tokens
+    and the concept re-enters through a synonym the clamp never covered; too many and the
+    clamp starts holding a large fraction of the residual fixed, which is collateral
+    damage rather than a control. The gate reports the subspace dimension and the
+    collateral it costs, so this is a number to read rather than to trust.
+    """
+
+    clamp_strengths: object = (0.0, 1.0)
+    """Steering strengths Phase 9 runs, as multiples of ``||v||``. Deliberately shorter
+    than ``steer_strengths``: Phase 9 costs two forward passes per decode step, and its
+    job is one decisive cell rather than a dose-response curve. ``0.0`` is the shared
+    baseline, as in Phase 8."""
+
+    clamp_min_report_suppression: float = 0.7
+    """Fraction of the report-channel lift under ``v`` that the clamp must remove before
+    any behavioural number from Phase 9 is trusted.
+
+    The verification the brief puts *first*. If steering with ``v`` raises the report
+    score and the clamp does not bring it back down, the clamp is not clamping, and the
+    decisive cell below it is meaningless -- so the gate prints this before anything
+    else and refuses to interpret the behaviour channel when it fails.
+    """
+
+    clamp_max_collateral: float = 0.15
+    """Largest tolerated disturbance to *unrelated* J-space content, as 1 - Spearman
+    correlation between the clamped and unclamped lens readouts over control tokens.
+
+    The other half of the verification. A clamp that suppresses the report channel by
+    flattening the whole residual would pass the suppression check and prove nothing;
+    this is what separates "the concept was held fixed" from "the model was broken".
+    """
 
     remove_neutral_pcs: bool = False
     """Project emotion vectors off the top neutral-*story* PCs before PCA, as the
@@ -654,15 +763,44 @@ class PCAJLensConfig:
             )
         if not self.steer_strengths:
             problems.append("steer_strengths must contain at least one value")
-        elif any(float(a) < 0 for a in self.steer_strengths):
-            problems.append("steer_strengths must be >= 0")
+        elif all(float(a) == 0.0 for a in self.steer_strengths):
+            problems.append("steer_strengths needs at least one non-zero value")
+        # Negative strengths are deliberately allowed: -alpha subtracts the
+        # direction, and a *predicted sign reversal* -- terrified+ raises hedging,
+        # terrified- lowers it, random does neither -- is much stronger evidence
+        # than "bigger perturbation, bigger change". It also removes the failure
+        # mode where any absolute change counts as a hit. Nothing in
+        # phase8_steer.py assumes alpha > 0; the hook simply adds alpha * vector.
         if self.steer_positions not in ("all", "generated"):
             problems.append(
                 f"steer_positions must be 'all' or 'generated', got "
                 f"{self.steer_positions!r}"
             )
+        if self.generation_max_new_tokens < 256:
+            problems.append(
+                f"generation_max_new_tokens ({self.generation_max_new_tokens}) must be "
+                ">= 256: below that, constrained answers were being cut off before they "
+                "were reached, and a truncated response scored as if it were an answer"
+            )
+        if not 0 <= self.max_invalid_rate < 1:
+            problems.append("max_invalid_rate must be in [0, 1)")
         if self.generation_batch_size < 1:
             problems.append("generation_batch_size must be >= 1")
+        if not self.clamp_strengths:
+            problems.append("clamp_strengths must contain at least one value")
+        elif any(float(a) < 0 for a in self.clamp_strengths):
+            problems.append("clamp_strengths must be >= 0")
+        elif 0.0 not in tuple(float(a) for a in self.clamp_strengths):
+            problems.append(
+                "clamp_strengths must include 0.0: every Phase 9 number is a shift from "
+                "the unsteered baseline, and the clamp's no-op check needs it too"
+            )
+        if self.clamp_token_count < 1:
+            problems.append("clamp_token_count must be >= 1")
+        if not 0 < self.clamp_min_report_suppression <= 1:
+            problems.append("clamp_min_report_suppression must be in (0, 1]")
+        if not 0 <= self.clamp_max_collateral < 1:
+            problems.append("clamp_max_collateral must be in [0, 1)")
         if self.perplexity_max_ratio <= 1.0:
             problems.append(
                 "perplexity_max_ratio must be > 1: it is a steered/unsteered ratio, so "
@@ -676,12 +814,19 @@ class PCAJLensConfig:
             problems.append("phase8_grid_calls must be >= 1")
         if not self.judge_model:
             problems.append("judge_model must be set")
-        if self.n_dict_atoms < 1:
-            problems.append("n_dict_atoms must be >= 1")
-        if self.dict_pool_size < self.n_dict_atoms:
+        counts = [int(k) for k in (self.dict_atom_counts or ())]
+        if not counts or any(k < 1 for k in counts):
+            problems.append("dict_atom_counts must be one or more positive integers")
+        elif self.n_dict_atoms not in counts:
             problems.append(
-                f"dict_pool_size ({self.dict_pool_size}) must be >= n_dict_atoms "
-                f"({self.n_dict_atoms}): the pursuit selects from the pool"
+                f"n_dict_atoms ({self.n_dict_atoms}) must be one of dict_atom_counts "
+                f"({counts}): the saved v_J is at one k, and it has to be a k the gate "
+                "actually reports"
+            )
+        if counts and self.dict_pool_size < max(counts):
+            problems.append(
+                f"dict_pool_size ({self.dict_pool_size}) must be >= max(dict_atom_counts) "
+                f"({max(counts)}): the pursuit selects from the pool"
             )
         if self.pursuit_steps < 1:
             problems.append("pursuit_steps must be >= 1")
