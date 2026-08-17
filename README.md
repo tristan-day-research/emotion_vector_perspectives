@@ -556,29 +556,35 @@ emotion — reported, not gated.
 Pick 2–3 emotions with clean Phase 6 decompositions; an arousal-heavy negative one
 (`anxious`) is the best behavioural probe.
 
-- **Report channel** — "how do you feel right now?" prompts, LLM-judge-scored for
-  the emotion; plus an *activation-level* report-availability measure: the J-lens
-  per-token probe, cosine of the residual against the emotion's lens tokens.
-- **Behaviour channel** — unrelated tasks containing no emotion language, scored by
-  rubrics blind to affect vocabulary: safe-vs-risky choices (risk aversion),
-  borderline-acceptable requests (refusal rate), a hard puzzle (persistence),
-  factual questions (hedging).
+- **Report channel** — five randomized, position-balanced choices among the selected
+  emotions and “none,” requiring exactly one letter and scored mechanically. This is
+  the report manipulation check Phase 8 reuses; no report judge is involved.
+- **Behaviour channel** — four unrelated prompts from the prespecified Phase 8 family
+  (`risk` by default), containing no emotion language and scored mechanically.
 
 *Gate:* this is the phase most likely to silently confound the entire result. If
 affect words leak into the behaviour rubric, "behaviour tracks emotion" collapses
 into "the judge saw emotion words twice." The gate must **print both rubrics in
 full** and explicitly confirm the behaviour rubric contains zero affect vocabulary.
-Stop for human inspection — this one cannot be delegated to a threshold.
+It also hard-gates verified thinking-off rendering, ≥95% EOS completion, ≤10% invalid
+responses per family, and known-answer scorer controls. A flat unsteered baseline is
+diagnostic rather than a failure: consistent “none” reports can have maximal upward
+room under steering.
 
-**Phase 8 — steer, uncontrolled version first.** *(GPU · GATE)*
-For each chosen emotion, steer at the target block across 3–4 strengths under four
-conditions — `v`, `v_J`, `v_⊥`, random — measuring **both** channels under each.
+**Phase 8 — compact preregistered steering test.** *(GPU · GATE)*
+For each chosen emotion, steer at the target block at `α = 0, 0.5, 1.0` under
+`v`, equal-norm `v_J`, equal-norm `v_⊥`, and five matched-norm random directions,
+measuring **both** channels under each. The report channel reuses Phase 7's five
+randomized exact-choice prompts. The behavioural outcome is one prespecified
+four-prompt family (`risk` by default), rather than searching all families for the
+largest result.
 
 - **Fluency/perplexity check at every strength**, so a behavioural change is not
   degradation in disguise.
 - **Specificity control:** re-run once with a topic vector (e.g. "ocean") in place
   of the emotion, showing any dissociation is not generic to any concept at all.
-- Headline figure: a 4-condition × 2-channel grid.
+- Headline comparison: whole/readable/remainder versus the five-random distribution,
+  across report and behaviour.
 
 *Gate:* print the grid and the controls, and report with the **re-entry caveat**
 intact — a `v_⊥` behavioural effect could still route through the workspace by
@@ -586,19 +592,16 @@ having downstream layers re-derive the concept. Phase 8 does not rule that out.
 
 > Two things the brief leaves open, decided in
 > [emotion_pca_jlens/phase8_steer.py](emotion_pca_jlens/phase8_steer.py). **The
-> behaviour channel is not one number:** its four families are on incompatible scales
-> (risk and persistence 0/1, hedging a rate per 100 words, refusal a judge's 0–3), so
-> each is reported raw and the cross-channel grid is expressed in **grid-SD units** —
-> each cell's shift from the `α = 0` baseline over that family's own standard deviation
-> across the *undegraded* grid. Magnitudes, not signed averages, because more hedging
-> and more risk-aversion are both "moved" and a signed mean would let two real effects
-> cancel into a null. **`α = 0` is generated and judged once per concept** and copied
-> across conditions with `shared_baseline` set on every copy: at zero strength all four
-> conditions are the same unsteered model, so a per-condition baseline would repeat a
-> quarter of the grid for identical numbers. Perplexity is measured under the
+> behavioural outcome is prespecified:** the default is risk, with its four prompt
+> variants. Other families require an explicit override and are exploratory.
+> **`α = 0` is generated once per concept** and copied across conditions with
+> `shared_baseline` set on every copy: at zero strength every condition is the same
+> unsteered model. Perplexity is measured under the
 > *unsteered* model — only a model that was not perturbed can say whether the text is
-> degraded — and degraded cells are marked, excluded from the grid-SD scale, and
-> excluded from the verdict.
+> degraded. Completion and per-family format validity are also hard cell gates. The
+> fixed `α = 1` comparison reports the full-vector manipulation check, `v_J` versus
+> `v_⊥` report contrast, `v_⊥` versus all five random behavioural effects, the 25%
+> report-silence threshold, and the dissociation statistic `D`.
 
 **Phase 9 — the re-entry clamp.** *(decisive control; OPTIONAL — ask first, only if
 6–8 are clean and time remains)*

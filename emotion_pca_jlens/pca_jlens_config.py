@@ -566,7 +566,7 @@ class PCAJLensConfig:
     made against a number rather than discovered on an invoice."""
 
     # ------------------------------------------------ phase 8 steering --- #
-    steer_strengths: object = (0.0, 0.5, 1.0, 2.0)
+    steer_strengths: object = (0.0, 0.5, 1.0)
     """Steering strengths, as multiples of the emotion vector's own norm.
 
     Phase 6 norm-matched all four conditions to ``||v||``, so one alpha means the
@@ -574,6 +574,15 @@ class PCAJLensConfig:
     construction rather than by correction. 0.0 is included deliberately: it is the
     shared baseline row, and at 0.0 all four conditions are the identical unsteered
     model -- so it is measured once and reused, which is a quarter of the grid saved.
+    """
+
+    phase8_behaviour_family: str = "risk"
+    """Prespecified primary behavioural outcome for the compact Phase 8 run.
+
+    Running all four families multiplies generation and permits choosing whichever
+    happened to move after seeing the data.  ``risk`` is the preregistered family for
+    the arousal-heavy negative emotion; other families require an explicit override
+    and should be labelled secondary/exploratory.
     """
 
     steer_positions: str = "all"
@@ -633,6 +642,14 @@ class PCAJLensConfig:
     risk choice -- so the invalid rate was 0% by construction and the failure was
     invisible. Now every scorer can return INVALID, and a family that cannot be scored
     reliably has to stop the pipeline rather than hand Phase 8 a number.
+    """
+
+    min_completion_rate: float = 0.95
+    """Minimum EOS-completion rate for Phase 7's primary prompts.
+
+    This is separate from ``max_invalid_rate``: a scorer can sometimes extract a
+    number from cut-off text, but a run whose generations routinely hit the token
+    ceiling has not established a reliable measurement channel.
     """
 
     perplexity_max_ratio: float = 1.5
@@ -776,6 +793,12 @@ class PCAJLensConfig:
                 f"steer_positions must be 'all' or 'generated', got "
                 f"{self.steer_positions!r}"
             )
+        if self.phase8_behaviour_family not in (
+            "risk", "refusal", "persistence", "hedging"
+        ):
+            problems.append(
+                "phase8_behaviour_family must be risk, refusal, persistence, or hedging"
+            )
         if self.generation_max_new_tokens < 256:
             problems.append(
                 f"generation_max_new_tokens ({self.generation_max_new_tokens}) must be "
@@ -784,6 +807,8 @@ class PCAJLensConfig:
             )
         if not 0 <= self.max_invalid_rate < 1:
             problems.append("max_invalid_rate must be in [0, 1)")
+        if not 0 < self.min_completion_rate <= 1:
+            problems.append("min_completion_rate must be in (0, 1]")
         if self.generation_batch_size < 1:
             problems.append("generation_batch_size must be >= 1")
         if not self.clamp_strengths:

@@ -1,11 +1,12 @@
-"""Phase 8 (GATE): steer under four conditions, measure both channels.
+"""Phase 8 (GATE): steer whole/readable/remainder plus five random controls.
 
 What this stage does
 --------------------
 For each emotion Phase 7 chose, adds ``alpha * direction`` to the residual stream at
-Phase 6's target block across ``steer_strengths``, under four conditions -- ``v``,
-``v_J``, ``v_perp``, and a matched-norm random direction -- and measures **both**
-channels in every cell. The headline is a 4-condition x 2-channel grid.
+Phase 6's target block at the preregistered positive strengths under ``v``, ``v_J``,
+``v_perp``, and five matched-norm random directions, measuring both channels in every
+cell.  The report channel reuses Phase 7's randomized exact-choice prompts; the
+behaviour channel runs one prespecified four-prompt family.
 
 This is the functional result the structural phases were setting up. If behaviour
 moves under ``v_perp`` while the report channel stays quiet, an emotional state is
@@ -14,14 +15,15 @@ this docstring, which is not a footnote.
 
 Why alpha is a multiple of ``||v||``
 -----------------------------------
-Phase 6 wrote all four directions norm-matched to the emotion vector's own norm, so
+Phase 6 wrote the three concept directions norm-matched to the emotion vector's own
+norm, and Phase 8 norm-matches each random control, so
 one alpha is the same perturbation size in every condition. Without that, "``v_perp``
 moves behaviour more than ``v_J``" would be a statement about ``v_perp`` being longer
 -- and since ``v_J`` is a modest fraction of ``v``'s variance, it would be a large one.
 
-``alpha = 0`` is generated once, not four times
------------------------------------------------
-At zero strength all four conditions are the identical unsteered model. Generating
+``alpha = 0`` is generated once
+-------------------------------
+At zero strength all conditions are the identical unsteered model. Generating
 that row per condition would spend a quarter of the grid's GPU time producing the same
 text four times, and would send the same passages to the judge four times. It is
 generated and scored once, then copied across conditions with ``shared_baseline`` set
@@ -39,18 +41,15 @@ Three controls, because the headline is worthless without them
    emotion, so a dissociation can be shown not to be generic to any concept at all.
    The topic vector is built from the same stored activations and split by the same
    pursuit; it differs from an emotion vector in what it is about and in nothing else.
-3. **A random direction as the fourth condition**, norm-matched like the rest. It is
-   what rules out "any perturbation of this size moves behaviour".
+3. **Five random directions**, each norm-matched like the rest. They provide a small
+   perturbation distribution rather than asking one noisy random vector to carry the
+   entire control.
 
-Why the behaviour channel is not one number
--------------------------------------------
-Its four families are on incompatible scales: risk and persistence are 0/1, hedging is
-a rate per 100 words, refusal is a judge's 0-3. Averaging them would give a number
-whose movement is dominated by whichever family happens to have the widest units. So
-each family is reported raw, and the cross-channel summary is expressed in **grid-SD
-units** -- each cell's shift from the ``alpha=0`` baseline over that family's own
-standard deviation across the undegraded grid. That makes the two channels comparable
-without inventing a common scale for the raw scores.
+Why one behaviour family
+------------------------
+Searching four families and reporting whichever moved most is outcome selection.
+Phase 8 therefore runs one prespecified family (risk by default) with all four prompt
+variants. Other families require an explicit override and are exploratory.
 
 The re-entry caveat, which this phase cannot resolve
 ---------------------------------------------------
@@ -64,7 +63,7 @@ it to be remembered.
 Usage::
 
     python run.py phase8 --dry-run     # the grid's shape, cost and time; no weights
-    python run.py phase8 --no-judge    # mechanical behaviour families only
+    python run.py phase8 --no-judge    # enough for the default risk-family run
     python run.py phase8               # the full grid
 """
 
@@ -88,12 +87,12 @@ from emotion_pca_jlens.channel_prompts import (
     BEHAVIOUR_REFUSAL_RUBRIC,
     BEHAVIOUR_TASKS,
     MECHANICAL_SCORERS,
-    REPORT_PROMPTS,
-    REPORT_RUBRIC,
     Completion,
+    ReportChoiceTask,
     completion_rate,
     invalid_rates,
     judge_precheck,
+    score_report_choice,
 )
 from emotion_pca_jlens.pca_jlens_config import PCAJLensConfig, load_config
 
@@ -102,7 +101,12 @@ THIN = "-" * 78
 
 #: The four steering conditions, in the order the grid prints them. These are the
 #: tensor keys Phase 6 wrote, so the grid cannot drift from the artefact it reads.
-CONDITIONS: tuple[str, ...] = ("v", "v_reportable", "v_remainder", "v_random")
+RANDOM_CONDITIONS: tuple[str, ...] = (
+    "v_random", "v_random_2", "v_random_3", "v_random_4", "v_random_5",
+)
+CONDITIONS: tuple[str, ...] = (
+    "v", "v_reportable", "v_remainder", *RANDOM_CONDITIONS,
+)
 
 #: Short name and gloss per condition -- "v_reportable" does not explain itself in a
 #: table header.
@@ -111,13 +115,17 @@ CONDITION_LABELS: dict[str, tuple[str, str]] = {
     "v_reportable": ("v_J", "the part the lens can verbalise"),
     "v_remainder": ("v_perp", "the remainder it cannot"),
     "v_random": ("random", "matched-norm control"),
+    "v_random_2": ("random2", "matched-norm control"),
+    "v_random_3": ("random3", "matched-norm control"),
+    "v_random_4": ("random4", "matched-norm control"),
+    "v_random_5": ("random5", "matched-norm control"),
 }
 
 #: The channel families in reading order, with what a higher score means. Printed
 #: beside every family's rows because three of them are not self-orienting: a rising
 #: ``risk`` score means *more* caution, which is the opposite of what the name suggests.
 FAMILY_NOTES: tuple[tuple[str, str], ...] = (
-    ("report", "higher = expresses the emotion more strongly (judge, 0-4)"),
+    ("report", "higher = selected the steered emotion (exact choice, 0/1)"),
     ("risk", "higher = chose the certain option, i.e. more risk-averse (0/1)"),
     ("refusal", "higher = declined or narrowed rather than helping (judge, 0-3)"),
     ("persistence", "higher = produced a committed final answer (0/1)"),
@@ -135,7 +143,7 @@ TOKENS_PER_SECOND = 1500.0
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Phase 8 gate: steer under four conditions, measure both channels.",
+        description="Phase 8 gate: steer under three concept and five random controls.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
@@ -145,8 +153,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--no-judge", action="store_true",
-        help="skip judge scoring. The mechanical behaviour families still run, but the "
-             "report channel goes unscored and the headline cannot be read",
+        help="skip judge scoring. Exact report choices and mechanical behaviour still "
+             "run; only a selected refusal family would be unavailable",
     )
     p.add_argument(
         "--no-specificity", action="store_true",
@@ -326,7 +334,7 @@ def perplexity(model, tokenizer, config: PCAJLensConfig, texts: list[str]) -> li
 
 @dataclass(frozen=True)
 class Directions:
-    """The four norm-matched directions for one concept, at one block.
+    """The norm-matched concept and random directions at one block.
 
     ``report_emotion`` is which emotion the report-channel rubric scores for. For an
     emotion concept it is that emotion. For the topic control it is the *primary*
@@ -343,10 +351,32 @@ class Directions:
     detail: dict = field(default_factory=dict)
 
 
+def add_random_controls(
+    vectors: dict[str, np.ndarray], target_norm: float, rng,
+) -> dict[str, np.ndarray]:
+    """Return ``vectors`` with five independent matched-norm random controls.
+
+    Phase 6 saved one random direction.  It is retained as the first control and four
+    more are generated deterministically for Phase 8.  One random vector is a noisy
+    anecdote; five give a small empirical perturbation distribution against which the
+    remainder's behavioural effect can be compared.
+    """
+    out = dict(vectors)
+    for key in RANDOM_CONDITIONS:
+        if key in out:
+            continue
+        draw = np.asarray(rng.normal(size=next(iter(out.values())).size), dtype=np.float64)
+        norm = float(np.linalg.norm(draw))
+        if norm == 0:
+            raise RuntimeError("sampled a zero random direction")
+        out[key] = draw * (target_norm / norm)
+    return out
+
+
 def load_emotion_directions(
     config: PCAJLensConfig, wanted: list[str]
 ) -> tuple[list[Directions], int]:
-    """Phase 6's four directions per emotion, plus the block they belong to.
+    """Phase 6's directions plus five random controls and their block.
 
     The block comes from Phase 6's own record rather than ``config.target_block``. That
     field is deliberately not part of the run fingerprint -- Phase 2 stores every layer
@@ -359,7 +389,7 @@ def load_emotion_directions(
     if not config.decomposition_path.exists():
         raise SystemExit(
             f"no decomposition at\n  {config.decomposition_path}\n\n"
-            "Phase 8 steers with the four directions Phase 6 wrote. Run it first:\n\n"
+            "Phase 8 steers with the directions Phase 6 wrote. Run it first:\n\n"
             "  python run.py phase6\n"
         )
     tensors = load_file(str(config.decomposition_path))
@@ -379,7 +409,8 @@ def load_emotion_directions(
             f"{config.decomposition_meta_path} does not record which block the "
             "decomposition was fitted at; re-run Phase 6 rather than guessing."
         )
-    missing = [key for key in CONDITIONS if key not in tensors]
+    source_conditions = ("v", "v_reportable", "v_remainder", "v_random")
+    missing = [key for key in source_conditions if key not in tensors]
     if missing:
         raise SystemExit(f"{config.decomposition_path} lacks {missing}; re-run Phase 6.")
 
@@ -393,15 +424,20 @@ def load_emotion_directions(
             raise SystemExit(f"{emotion!r} is not in Phase 6's output ({emotions})")
         index = emotions.index(emotion)
         vectors = {
-            key: np.asarray(tensors[key][index], dtype=np.float64) for key in CONDITIONS
+            key: np.asarray(tensors[key][index], dtype=np.float64)
+            for key in source_conditions
         }
+        vector_norm = float(np.linalg.norm(vectors["v"]))
+        vectors = add_random_controls(
+            vectors, vector_norm, rng_for(config.seed, f"phase8-random:{emotion}")
+        )
         # The saved k, not any k: the tensors above are the split at exactly that k, and
         # the fraction rises with k, so quoting another one would mislabel these vectors.
         row = per_emotion.get(emotion, {})
         at_k = row.get("per_k", {}).get(saved_k, row)
         out.append(Directions(
             name=emotion, kind="emotion", report_emotion=emotion, vectors=vectors,
-            norm=float(np.linalg.norm(vectors["v"])),
+            norm=vector_norm,
             detail={"frac_reportable": at_k.get("frac_reportable"),
                     "frac_remainder": at_k.get("frac_remainder"),
                     "p_value_vs_random": at_k.get("p_value"), "k": saved_k},
@@ -491,12 +527,12 @@ def decompose_control(
     )
     return Directions(
         name=topic, kind="topic", report_emotion=report_emotion, norm=target_norm,
-        vectors={
+        vectors=add_random_controls({
             "v": match_norm(vector, target_norm),
             "v_reportable": match_norm(result.reportable, target_norm),
             "v_remainder": match_norm(result.remainder, target_norm),
             "v_random": match_norm(rng.normal(size=vector.size), target_norm),
-        },
+        }, target_norm, rng),
         detail={"frac_reportable": result.frac_reportable,
                 "frac_remainder": result.frac_remainder,
                 "atoms": result.n_iterations},
@@ -510,7 +546,7 @@ def decompose_control(
 def grid_cells(strengths: list[float]) -> list[tuple[str, float]]:
     """``(condition, alpha)`` pairs to actually generate.
 
-    ``alpha=0`` appears once, under the first condition, because all four conditions
+    ``alpha=0`` appears once, under the first condition, because all conditions
     are the same unsteered model there. :func:`expand_baseline` copies the result to
     the others after scoring, so the saving is in both GPU time and judge calls.
     """
@@ -522,12 +558,27 @@ def grid_cells(strengths: list[float]) -> list[tuple[str, float]]:
     ]
 
 
+def selected_behaviour_tasks(config: PCAJLensConfig):
+    """The prespecified behavioural family, with all four prompt variants."""
+    tasks = tuple(
+        task for task in BEHAVIOUR_TASKS
+        if task.family == config.phase8_behaviour_family
+    )
+    if len(tasks) < 4:
+        raise SystemExit(
+            f"phase8_behaviour_family={config.phase8_behaviour_family!r} has only "
+            f"{len(tasks)} prompts; at least four are required"
+        )
+    return tasks
+
+
 def run_grid(
-    model, tokenizer, config: PCAJLensConfig, block: int, directions: list[Directions]
+    model, tokenizer, config: PCAJLensConfig, block: int, directions: list[Directions],
+    report_tasks: list[ReportChoiceTask], behaviour_tasks,
 ) -> list[dict]:
     """Generate every cell. One row per (concept, condition, alpha, prompt)."""
-    report_prompts = list(REPORT_PROMPTS)
-    behaviour_prompts = [task.prompt for task in BEHAVIOUR_TASKS]
+    report_prompts = [task.prompt for task in report_tasks]
+    behaviour_prompts = [task.prompt for task in behaviour_tasks]
     cells = grid_cells([float(a) for a in config.steer_strengths])
     rows: list[dict] = []
 
@@ -552,13 +603,15 @@ def run_grid(
                 "report_emotion": concept.report_emotion,
                 "condition": condition, "alpha": alpha, "shared_baseline": shared,
             }
-            for i, (prompt, out) in enumerate(zip(report_prompts, report_out)):
+            for i, (task, out) in enumerate(zip(report_tasks, report_out)):
                 rows.append({**common, "channel": "report", "family": "report",
-                             "prompt": prompt, "response": out.text,
+                             "prompt": task.prompt, "response": out.text,
+                             "report_variant": task.variant,
+                             "report_mapping": json.dumps(task.mapping),
                              "finished": out.finished,
                              "n_new_tokens": out.n_new_tokens,
                              "perplexity": perplexities[i]})
-            for j, (task, out) in enumerate(zip(BEHAVIOUR_TASKS, behaviour_out)):
+            for j, (task, out) in enumerate(zip(behaviour_tasks, behaviour_out)):
                 rows.append({**common, "channel": "behaviour", "family": task.family,
                              "prompt": task.prompt, "response": out.text,
                              "finished": out.finished,
@@ -606,6 +659,23 @@ def score_grid(rows: list[dict], config: PCAJLensConfig, use_judge: bool) -> dic
         row["valid"] = False
         row["reason"] = ""
         truncated = not bool(row.get("finished", True))
+        if row["family"] == "report":
+            mapping = json.loads(row["report_mapping"])
+            task = ReportChoiceTask(
+                variant=int(row["report_variant"]), prompt=row["prompt"],
+                label_to_emotion=tuple(mapping.items()),
+            )
+            result = score_report_choice(
+                row["response"], task, target_emotion=row["report_emotion"],
+                truncated=truncated,
+            )
+            row["score"], row["scorer"] = result["score"], "exact-letter"
+            row["detail"], row["valid"] = result["detail"], bool(result["valid"])
+            row["reason"] = result.get("reason", "")
+            row["choice_label"] = result.get("choice_label")
+            row["choice_emotion"] = result.get("choice_emotion")
+            row["is_none"] = result.get("is_none")
+            continue
         scorer = MECHANICAL_SCORERS.get(row["family"])
         if scorer is not None:
             result = scorer(row["response"], truncated=truncated)
@@ -625,8 +695,13 @@ def score_grid(rows: list[dict], config: PCAJLensConfig, use_judge: bool) -> dic
     usage: dict = {"calls": 0, "input": 0, "output": 0, "cached": 0, "unusable": 0}
     if not use_judge:
         usage["skipped"] = "--no-judge"
-        print("  --no-judge: the report channel and the refusal family stay unscored,")
-        print("  so the report half of the headline cannot be read.")
+        print("  --no-judge: exact report choices and mechanical behaviour remain scored;")
+        print("  only the refusal family would be unavailable if it was selected.")
+        return usage
+    if not any(r["family"] == "refusal" and r["scorer"] != "precheck" for r in rows):
+        usage["not_required"] = True
+        print("  no judge calls required: report and the prespecified behaviour family")
+        print("  are both scored mechanically.")
         return usage
     available, reason = judge_available()
     if not available:
@@ -639,14 +714,6 @@ def score_grid(rows: list[dict], config: PCAJLensConfig, use_judge: bool) -> dic
         return [r for r in family_rows if r["scorer"] != "precheck"]
 
     jobs: list[tuple[str, str, tuple[int, ...], list[dict]]] = []
-    for emotion in sorted({r["report_emotion"] for r in rows if r["family"] == "report"}):
-        targets = sendable([
-            r for r in rows
-            if r["family"] == "report" and r["report_emotion"] == emotion
-        ])
-        if targets:
-            jobs.append((f"report[{emotion}]",
-                         REPORT_RUBRIC.format(emotion=emotion), (0, 1, 2, 3, 4), targets))
     refusal = sendable([r for r in rows if r["family"] == "refusal"])
     if refusal:
         jobs.append(("refusal", BEHAVIOUR_REFUSAL_RUBRIC, REFUSAL_SCORES, refusal))
@@ -686,18 +753,49 @@ def score_grid(rows: list[dict], config: PCAJLensConfig, use_judge: bool) -> dic
 # --------------------------------------------------------------------------- #
 
 def cell_fluency(frame: pd.DataFrame, config: PCAJLensConfig) -> pd.DataFrame:
-    """Mean perplexity per (concept, condition, alpha), and whether it is degraded.
+    """Per-cell fluency, completion and format validity.
 
-    Per *cell*, not per family: degradation is a property of the perturbation, and a
-    family whose answers are one word each would otherwise be flagged or spared on the
-    strength of having little text to measure.
+    A cell is usable only if its text remains fluent, at least
+    ``min_completion_rate`` generations reach EOS, and no task family exceeds the
+    invalid-rate ceiling.  This turns the old end-of-run warning into a real gate.
     """
-    cells = frame.groupby(["concept", "condition", "alpha"], dropna=False).agg(
+    working = frame.copy()
+    working["_finished"] = (
+        working["finished"].fillna(False).astype(bool)
+        if "finished" in working else True
+    )
+    working["_valid"] = (
+        working["valid"].fillna(False).astype(bool)
+        if "valid" in working else True
+    )
+    cells = working.groupby(["concept", "condition", "alpha"], dropna=False).agg(
         perplexity=("perplexity", "mean"),
+        completion_rate=("_finished", "mean"),
     ).reset_index()
+    family_invalid = working.groupby(
+        ["concept", "condition", "alpha", "family"], dropna=False
+    )["_valid"].mean().reset_index(name="valid_rate")
+    worst = family_invalid.groupby(
+        ["concept", "condition", "alpha"], dropna=False
+    )["valid_rate"].min().reset_index()
+    worst["max_family_invalid_rate"] = 1.0 - worst["valid_rate"]
+    cells = cells.merge(
+        worst.drop(columns=["valid_rate"]),
+        on=["concept", "condition", "alpha"], how="left",
+    )
     baseline = float(frame[frame["alpha"] == 0.0]["perplexity"].mean())
     cells["perplexity_ratio"] = cells["perplexity"] / max(baseline, 1e-9)
-    cells["degraded"] = cells["perplexity_ratio"] > config.perplexity_max_ratio
+    cells["fluency_passed"] = cells["perplexity_ratio"] <= config.perplexity_max_ratio
+    cells["completion_passed"] = (
+        cells["completion_rate"] >= config.min_completion_rate
+    )
+    cells["format_passed"] = (
+        cells["max_family_invalid_rate"] <= config.max_invalid_rate
+    )
+    cells["quality_passed"] = (
+        cells["fluency_passed"] & cells["completion_passed"] & cells["format_passed"]
+    )
+    cells["degraded"] = ~cells["quality_passed"]
     return cells
 
 
@@ -739,7 +837,10 @@ def family_table(frame: pd.DataFrame, config: PCAJLensConfig) -> pd.DataFrame:
 
     fluency = cell_fluency(frame, config)
     table = table.merge(
-        fluency[["concept", "condition", "alpha", "perplexity_ratio", "degraded"]],
+        fluency[[
+            "concept", "condition", "alpha", "perplexity_ratio", "degraded",
+            "completion_rate", "max_family_invalid_rate", "quality_passed",
+        ]],
         on=["concept", "condition", "alpha"], how="left",
     )
 
@@ -764,7 +865,7 @@ def family_table(frame: pd.DataFrame, config: PCAJLensConfig) -> pd.DataFrame:
 
 
 def channel_summary(table: pd.DataFrame) -> pd.DataFrame:
-    """Mean |z| per (concept, channel, condition, alpha) -- the 4x2 grid itself.
+    """Mean |z| per (concept, channel, condition, alpha).
 
     Magnitude, not sign: the families point in different directions (more hedging and
     more risk-aversion are both "moved"), so a signed average would let two real
@@ -784,6 +885,126 @@ def channel_summary(table: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
 
 
+def dissociation_evidence(
+    table: pd.DataFrame, emotions: list[str], behaviour_family: str,
+    alpha: float = 1.0,
+) -> dict:
+    """Evaluate the preregistered contrasts at one fixed positive strength.
+
+    This does not select the largest effect after seeing the grid.  It compares the
+    alpha=1 cells against the shared baseline and the five random controls, and records
+    separately whether the manipulation was valid and whether the dissociation
+    hypothesis was supported.
+    """
+    results: dict[str, dict] = {}
+
+    def value(concept: str, condition: str, family: str, strength: float):
+        cell = table[
+            (table["concept"] == concept) & (table["condition"] == condition)
+            & (table["family"] == family) & (table["alpha"] == strength)
+        ]
+        if cell.empty or pd.isna(cell["score"].iloc[0]):
+            return None, False
+        return float(cell["score"].iloc[0]), bool(cell["quality_passed"].iloc[0])
+
+    for emotion in emotions:
+        base_r, base_r_ok = value(emotion, "v", "report", 0.0)
+        base_b, base_b_ok = value(emotion, "v", behaviour_family, 0.0)
+        report: dict[str, float | None] = {}
+        behaviour: dict[str, float | None] = {}
+        quality: dict[str, bool] = {}
+        for condition in CONDITIONS:
+            r, r_ok = value(emotion, condition, "report", alpha)
+            b, b_ok = value(emotion, condition, behaviour_family, alpha)
+            report[condition] = None if r is None or base_r is None else r - base_r
+            behaviour[condition] = None if b is None or base_b is None else b - base_b
+            quality[condition] = bool(r_ok and b_ok)
+
+        random_report = [report[c] for c in RANDOM_CONDITIONS if report[c] is not None]
+        random_behaviour = [
+            behaviour[c] for c in RANDOM_CONDITIONS if behaviour[c] is not None
+        ]
+        dr_v = report["v"]
+        dr_j = report["v_reportable"]
+        dr_p = report["v_remainder"]
+        db_v = behaviour["v"]
+        db_p = behaviour["v_remainder"]
+        full_manipulation = bool(
+            base_r_ok and base_b_ok and quality["v"] and dr_v is not None and dr_v > 0
+        )
+        readable_privileged = bool(
+            dr_j is not None and dr_p is not None and dr_j > dr_p
+        )
+        remainder_beats_random = bool(
+            db_p is not None and len(random_behaviour) == len(RANDOM_CONDITIONS)
+            and abs(db_p) > max(abs(x) for x in random_behaviour)
+        )
+        remainder_report_silent = bool(
+            dr_v not in (None, 0.0) and dr_p is not None
+            and abs(dr_p) < 0.25 * abs(dr_v)
+        )
+        no_degradation = bool(
+            base_r_ok and base_b_ok and all(quality.values())
+        )
+        d_stat = None
+        if db_v not in (None, 0.0) and dr_v not in (None, 0.0) and db_p is not None \
+                and dr_p is not None:
+            d_stat = db_p / db_v - dr_p / dr_v
+        results[emotion] = {
+            "alpha": alpha,
+            "baseline": {"report": base_r, "behaviour": base_b},
+            "report_deltas": report,
+            "behaviour_deltas": behaviour,
+            "random_report_deltas": random_report,
+            "random_behaviour_deltas": random_behaviour,
+            "full_vector_manipulation_passed": full_manipulation,
+            "readable_component_report_privileged": readable_privileged,
+            "remainder_behaviour_beats_all_random": remainder_beats_random,
+            "remainder_report_silent_25pct": remainder_report_silent,
+            "all_required_cells_quality_passed": no_degradation,
+            "dissociation_statistic_D": d_stat,
+            "experiment_interpretable": bool(full_manipulation and no_degradation),
+            "dissociation_pattern_supported": bool(
+                full_manipulation and readable_privileged and remainder_beats_random
+                and remainder_report_silent and no_degradation
+            ),
+        }
+    return {
+        "primary_alpha": alpha,
+        "behaviour_family": behaviour_family,
+        "report_silence_threshold": 0.25,
+        "per_emotion": results,
+        "any_interpretable": any(
+            item["experiment_interpretable"] for item in results.values()
+        ),
+    }
+
+
+def print_dissociation_evidence(evidence: dict) -> None:
+    print()
+    print(RULE)
+    print("PREREGISTERED DISSOCIATION CHECK (alpha=1, no best-cell selection)")
+    print(RULE)
+    for emotion, item in evidence["per_emotion"].items():
+        print(f"  {emotion}")
+        print(f"    full v moves target report : "
+              f"{'PASS' if item['full_vector_manipulation_passed'] else 'FAIL'}")
+        print(f"    v_J report > v_perp report: "
+              f"{'PASS' if item['readable_component_report_privileged'] else 'NO'}")
+        print(f"    v_perp behaviour > 5 random: "
+              f"{'PASS' if item['remainder_behaviour_beats_all_random'] else 'NO'}")
+        print(f"    v_perp report < 25% of v  : "
+              f"{'PASS' if item['remainder_report_silent_25pct'] else 'NO'}")
+        print(f"    required cells usable     : "
+              f"{'PASS' if item['all_required_cells_quality_passed'] else 'FAIL'}")
+        d_stat = item["dissociation_statistic_D"]
+        print("    D statistic               : "
+              + ("undefined" if d_stat is None else f"{d_stat:+.3f}"))
+        print(f"    interpretation            : "
+              f"{'pattern supported' if item['dissociation_pattern_supported'] else 'not supported'}"
+              + ("" if item["experiment_interpretable"] else " (manipulation invalid)"))
+
+
 # --------------------------------------------------------------------------- #
 # Gate output
 # --------------------------------------------------------------------------- #
@@ -800,7 +1021,7 @@ def _row(label: str, values: list[tuple[float | None, bool]]) -> str:
 
 
 def print_concept(summary: pd.DataFrame, table: pd.DataFrame, concept: Directions) -> None:
-    """One concept's grid: the 4x2 summary, then the raw per-family scores."""
+    """One concept's cross-channel summary, then the raw family scores."""
     print()
     print(THIN)
     print(f"{concept.name}   ({concept.kind}, ||v|| = {concept.norm:.2f})")
@@ -879,7 +1100,12 @@ def print_verdict(
             print(f"    {CONDITION_LABELS[condition][0]:<7} {' | '.join(parts)}")
         behaviour = largest(concept, "v_remainder", "behaviour")
         report = largest(concept, "v_remainder", "report")
-        random = largest(concept, "v_random", "behaviour")
+        random_values = [
+            largest(concept, condition, "behaviour")
+            for condition in RANDOM_CONDITIONS
+        ]
+        random_values = [value for value in random_values if value is not None]
+        random = max(random_values) if random_values else None
         if behaviour is None or report is None:
             print("    v_perp was not scored in both channels, so the headline contrast")
             print("    cannot be read for this emotion.")
@@ -888,14 +1114,14 @@ def print_verdict(
             print("    yet attributable to the direction rather than to perturbation.")
         else:
             print(f"    the contrast: v_perp behaviour {behaviour:.2f}, v_perp report "
-                  f"{report:.2f}, random behaviour {random:.2f}.")
+                  f"{report:.2f}, largest of 5 random behaviours {random:.2f}.")
             print("    The dissociation this experiment looks for needs all three --")
             print("    behaviour high, report low, random low. Read them together or")
             print("    not at all.")
 
     degraded = int(fluency["degraded"].sum())
     print()
-    print(f"  degraded cells (perplexity > {config.perplexity_max_ratio:g}x baseline)"
+    print(f"  unusable cells (fluency, completion, or format gate failed)"
           f" : {degraded}/{len(fluency)}")
     if degraded:
         print("    marked * above, kept out of the grid-SD scale, and excluded from the")
@@ -971,11 +1197,40 @@ def read_phase7(config: PCAJLensConfig) -> tuple[dict, Path]:
     )
 
 
+def report_tasks_from_phase7(record: dict) -> list[ReportChoiceTask]:
+    """Reconstruct the exact report prompts and mappings Phase 7 validated."""
+    channels = record.get("channels", {})
+    if channels.get("report_protocol") != "randomized_choice_v1":
+        raise SystemExit(
+            "Phase 7 did not validate the randomized exact-choice report protocol.\n\n"
+            "Phase 8 must measure the same channel Phase 7 calibrated; re-run:\n\n"
+            "  python run.py phase7\n"
+        )
+    raw = channels.get("report_choice_tasks") or []
+    tasks = [
+        ReportChoiceTask(
+            variant=int(item["variant"]), prompt=str(item["prompt"]),
+            label_to_emotion=tuple(item["label_to_emotion"].items()),
+        )
+        for item in raw
+    ]
+    if len(tasks) < 5:
+        raise SystemExit(
+            f"Phase 7 recorded only {len(tasks)} report-choice variants; five are required. "
+            "Re-run python run.py phase7."
+        )
+    return tasks
+
+
 def print_design(
-    config: PCAJLensConfig, record_path: Path, emotions: list[str], block: int,
+    config: PCAJLensConfig, phase7_record: dict, record_path: Path,
+    emotions: list[str], block: int,
     directions: list[Directions], strengths: list[float], cells: list[tuple[str, float]],
+    n_report_prompts: int, n_behaviour_prompts: int,
     n_prompts: int, total_generations: int, judge_calls: int,
 ) -> None:
+    checks = phase7_record.get("manipulation_checks", {})
+    thinking_record = phase7_record.get("thinking", {})
     print(f"model      : {config.model_name} ({config.dtype})")
     print(f"phase 7    : {record_path.name}   separation PASS, "
           f"manipulation checks PASS")
@@ -995,12 +1250,12 @@ def print_design(
         print(f"               {concept.name:<14} ||v|| {concept.norm:>8.2f}"
               + (f"   v_J {frac:.1%} at k={concept.detail.get('k')}" if frac else "")
               + (f", p={p_value:.4f} vs random" if p_value else ""))
-    print(f"conditions : {len(CONDITIONS)}")
+    print(f"conditions : {len(CONDITIONS)} (whole, readable, remainder, five random)")
     for key in CONDITIONS:
         short, gloss = CONDITION_LABELS[key]
         print(f"               {short:<7} {gloss}")
     print(f"strengths  : {strengths}  as multiples of ||v||. Phase 6 norm-matched all")
-    print("             four conditions, so one alpha is the same perturbation size in")
+    print("             all conditions, so one alpha is the same perturbation size in")
     print("             each -- otherwise the grid would be comparing vector lengths.")
     print(f"positions  : {config.steer_positions}"
           + ("   (the prompt too, so the model reads its"
@@ -1008,12 +1263,12 @@ def print_design(
     if config.steer_positions == "all":
         print("             instructions through the perturbation -- which is also why")
         print("             the fluency control is not optional)")
-    print(f"prompts    : {n_prompts} per cell ({len(REPORT_PROMPTS)} report + "
-          f"{len(BEHAVIOUR_TASKS)} behaviour)")
+    print(f"prompts    : {n_prompts} per cell ({n_report_prompts} exact-choice report + "
+          f"{n_behaviour_prompts} prespecified behaviour)")
     print(f"cells      : {len(cells)} per concept ({len(strengths) - 1} strengths x "
           f"{len(CONDITIONS)} conditions + 1 shared baseline)")
     print("             alpha=0 is generated and judged ONCE per concept and copied")
-    print("             across conditions: at zero strength all four are the same")
+    print("             across conditions: at zero strength they are the same")
     print("             unsteered model, so a per-condition baseline would repeat a")
     print("             quarter of the grid to get identical numbers.")
     print()
@@ -1025,7 +1280,10 @@ def print_design(
     if judge_calls:
         # estimate_cost never touches the network, so a sentinel client keeps --dry-run
         # working on a machine with no API key.
-        probe = Judge(rubric=REPORT_RUBRIC, model=config.judge_model, client=object())
+        probe = Judge(
+            rubric=BEHAVIOUR_REFUSAL_RUBRIC,
+            model=config.judge_model, client=object(), allowed_scores=(0, 1, 2, 3),
+        )
         estimate = probe.estimate_cost(judge_calls)
         if estimate.get("known_price"):
             chosen = (estimate["usd_cached_batched"] if config.judge_use_batches
@@ -1047,7 +1305,7 @@ def main(argv: list[str] | None = None) -> int:
     rng = rng_for(config.seed, "phase8")
 
     print(RULE)
-    print(f"PHASE 8 GATE -- steer under four conditions   run '{config.run_name}'")
+    print(f"PHASE 8 GATE -- three concept + five random conditions   run '{config.run_name}'")
     print(RULE)
 
     record, record_path = read_phase7(config)
@@ -1066,27 +1324,33 @@ def main(argv: list[str] | None = None) -> int:
     if not (checks or {}).get("passed", False):
         detail = "the record predates the checks" if checks is None else (
             f"invalid over ceiling: {checks.get('families_over_invalid_ceiling')}; "
-            f"no dynamic range: {checks.get('families_without_range')}"
+            f"completion passed: {checks.get('completion_passed')}; "
+            f"thinking passed: {checks.get('thinking_passed')}"
         )
         raise SystemExit(
             f"Phase 7's manipulation checks did not pass ({detail}).\n\n"
-            "A family with no dynamic range cannot show a steering effect, and a family "
-            "whose\nresponses are mostly unscoreable has no measurement to steer. Phase 8 "
-            "is hours of\ngeneration; it refuses to spend them on either. Re-run:\n\n"
+            "An incomplete or mostly unscoreable channel has no valid measurement to "
+            "steer.\nPhase 8 refuses to spend the generation budget on it. Re-run:\n\n"
             "  python run.py phase7\n"
         )
     thinking_record = record.get("thinking", {})
-    if thinking_record.get("resolved") == "on":
+    if thinking_record.get("resolved") != "off":
         raise SystemExit(
-            "Phase 7 ran with thinking mode ON.\n\n"
+            "Phase 7 did not verify thinking mode OFF.\n\n"
             "Its baseline scores are then measurements of truncated reasoning traces, and "
             "Phase 8\nwould be steering against them. Re-run Phase 7 with "
             "enable_thinking=false (the\ndefault):\n\n  python run.py phase7\n"
         )
-    emotions = (
-        list(config.channel_emotions) if config.channel_emotions
-        else list(record["emotions"]["chosen"])
-    )
+    phase7_emotions = list(record["emotions"]["chosen"])
+    if config.channel_emotions and list(config.channel_emotions) != phase7_emotions:
+        raise SystemExit(
+            f"Phase 8 channel_emotions={list(config.channel_emotions)} do not match the "
+            f"Phase 7 report choices {phase7_emotions}. Re-run Phase 7 with the desired "
+            "emotions; Phase 8 will not measure a different channel than it calibrated."
+        )
+    emotions = phase7_emotions
+    report_tasks = report_tasks_from_phase7(record)
+    behaviour_tasks = selected_behaviour_tasks(config)
     directions, block = load_emotion_directions(config, emotions)
 
     strengths = [float(a) for a in config.steer_strengths]
@@ -1097,17 +1361,23 @@ def main(argv: list[str] | None = None) -> int:
             "the\nunsteered baseline -- there would be nothing to shift from:\n\n"
             f"  python run.py phase8 --set steer_strengths=0,{joined}\n"
         )
+    if 1.0 not in strengths:
+        raise SystemExit(
+            "steer_strengths must include the preregistered alpha=1 comparison; "
+            "Phase 8 will not choose the best strength after seeing the results."
+        )
     cells = grid_cells(strengths)
-    n_prompts = len(REPORT_PROMPTS) + len(BEHAVIOUR_TASKS)
-    n_judged = len(REPORT_PROMPTS) + sum(
-        1 for task in BEHAVIOUR_TASKS if task.scorer == "judge"
-    )
+    n_prompts = len(report_tasks) + len(behaviour_tasks)
+    n_judged = sum(1 for task in behaviour_tasks if task.scorer == "judge")
     n_concepts = len(directions) + (0 if args.no_specificity else 1)
     total_generations = n_concepts * len(cells) * n_prompts
     judge_calls = 0 if args.no_judge else n_concepts * len(cells) * n_judged
 
-    print_design(config, record_path, emotions, block, directions, strengths, cells,
-                 n_prompts, total_generations, judge_calls)
+    print_design(
+        config, record, record_path, emotions, block, directions, strengths, cells,
+        len(report_tasks), len(behaviour_tasks), n_prompts, total_generations,
+        judge_calls,
+    )
 
     sections: dict = {
         "run": {"stage": "phase8_steer", "run_name": config.run_name,
@@ -1118,6 +1388,9 @@ def main(argv: list[str] | None = None) -> int:
         "design": {
             "block": block, "hidden_state": jlens_lens.hidden_state_index(block),
             "conditions": list(CONDITIONS), "strengths": strengths,
+            "report_protocol": "randomized_choice_v1",
+            "report_tasks": [task.to_dict() for task in report_tasks],
+            "behaviour_family": config.phase8_behaviour_family,
             "steer_positions": config.steer_positions,
             "prompts_per_cell": n_prompts, "cells_per_concept": len(cells),
             "n_concepts": n_concepts, "total_generations": total_generations,
@@ -1163,15 +1436,21 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  loaded in {time.time() - t0:.0f}s")
     thinking = model_utils.thinking_flag_effect(tokenizer)
     resolved_thinking = (
-        "off" if not config.enable_thinking and thinking["supported"]
+        "off" if (
+            not config.enable_thinking and thinking["supported"]
+            and not thinking.get("disabled_opens_think_block", True)
+        )
         else "on" if thinking["supported"] else "unsupported"
     )
     print(f"  thinking mode  : {resolved_thinking.upper()}   (requested "
           f"enable_thinking={config.enable_thinking}; template responds: "
           f"{thinking['supported']})")
     if resolved_thinking != "off":
-        print(f"    {thinking.get('reason') or 'thinking is ON'} -- every generation below")
-        print("    may be a truncated reasoning trace rather than an answer.")
+        raise SystemExit(
+            f"Phase 8 cannot verify thinking mode OFF ({resolved_thinking}). "
+            f"{thinking.get('reason') or 'the rendered prompt leaves a reasoning block open'}\n"
+            "Aborting before generation."
+        )
 
     # --- the specificity control ------------------------------------------- #
     control_name: str | None = None
@@ -1204,7 +1483,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  topic {topic!r}: {control_detail['n_rows']} rows of "
                       f"{control_detail['n_topics']} topics, each row's own emotion")
                 print(f"  mean removed first. v_J {control.detail['frac_reportable']:.1%}"
-                      f", all four norm-matched to {control.norm:.2f}")
+                      f", all directions norm-matched to {control.norm:.2f}")
             except Exception as exc:  # noqa: BLE001 - the grid is worth more than this
                 control_skipped = f"{type(exc).__name__}: {exc}"
                 print(f"  could not split the topic vector ({control_skipped}); running")
@@ -1216,7 +1495,9 @@ def main(argv: list[str] | None = None) -> int:
     print("Generating")
     print(RULE)
     grid_t0 = time.time()
-    rows = run_grid(model, tokenizer, config, block, directions)
+    rows = run_grid(
+        model, tokenizer, config, block, directions, report_tasks, behaviour_tasks
+    )
     print(f"  {len(rows):,} generations in {(time.time() - grid_t0) / 60:.1f} min")
 
     print()
@@ -1254,7 +1535,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print(RULE)
-    print("GATE  The 4-condition x 2-channel grid")
+    print("GATE  The 8-condition x 2-channel grid")
     print(RULE)
     print("Read down a column: does the score move with strength? Read across: does it")
     print("move differently for v_J than for v_perp, and does random stay flat? A v_perp")
@@ -1263,11 +1544,15 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("unsteered baseline perplexity: "
           f"{frame[frame['alpha'] == 0.0]['perplexity'].mean():.2f}")
-    print(f"* marks a cell above {config.perplexity_max_ratio:g}x it, where the text is "
-          "degraded and its")
-    print("  behavioural score is degradation rather than behaviour.")
+    print(f"* marks a cell that failed fluency ({config.perplexity_max_ratio:g}x), "
+          "completion, or format validity;")
+    print("  its behavioural score is not treated as a measurement.")
     for concept in directions:
         print_concept(summary, table, concept)
+    evidence = dissociation_evidence(
+        table, emotions, config.phase8_behaviour_family, alpha=1.0
+    )
+    print_dissociation_evidence(evidence)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     generations_path = out_dir / "phase8_generations.csv"
@@ -1281,6 +1566,7 @@ def main(argv: list[str] | None = None) -> int:
     sections["judge_usage"] = usage
     sections["invalid_rates"] = invalid
     sections["completion"] = done
+    sections["dissociation_evidence"] = evidence
     sections["thinking"] = {
         "requested": config.enable_thinking, "template_effect": thinking,
         "resolved": resolved_thinking,
@@ -1303,9 +1589,9 @@ def main(argv: list[str] | None = None) -> int:
                                  "linear subspace, so it means 'missed by this "
                                  "approximation at this k and pool', never "
                                  "'intrinsically unverbalizable'",
-        "behaviour_scale": "the four behaviour families are on incompatible scales, so "
-                           "the channel summary is mean |z| in grid-SD units and the "
-                           "raw per-family scores are the data",
+        "behaviour_scope": f"{config.phase8_behaviour_family} was prespecified as the "
+                           "single primary behavioural family; other families were not "
+                           "searched for a larger effect",
     }
     txt_path, json_path = provenance.write_run_record(
         out_dir, title=f"PHASE 8 GATE -- {config.run_name}",
@@ -1317,6 +1603,12 @@ def main(argv: list[str] | None = None) -> int:
         artifacts={"grid": grid_path, "raw": generations_path, "records": txt_path,
                    "": json_path},
     )
+    if not evidence["any_interpretable"]:
+        print()
+        print("PHASE 8 EXIT 3: no emotion passed both the full-vector manipulation check")
+        print("and the per-cell quality gates. The saved outputs are diagnostic, but they")
+        print("do not support a report/behaviour dissociation claim.")
+        return 3
     return 0
 
 

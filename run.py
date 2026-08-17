@@ -35,6 +35,7 @@ STAGES = {
     "phase1_stimuli": "emotion_pca_jlens.phase1_stimuli",
     "phase2_vectors": "emotion_pca_jlens.phase2_vectors",
     "phase3_pca": "emotion_pca_jlens.phase3_pca",
+    "phase3b_compositionality": "emotion_pca_jlens.phase3b_compositionality",
     "phase4_lens_pcs": "emotion_pca_jlens.phase4_lens_pcs",
     "phase5_extensions": "emotion_pca_jlens.phase5_extensions",
     "phase6_decompose": "emotion_pca_jlens.phase6_decompose",
@@ -64,6 +65,8 @@ ALIASES = {
     "vectors": "phase2_vectors",
     "phase3": "phase3_pca",
     "pca": "phase3_pca",
+    "phase3b": "phase3b_compositionality",
+    "compositionality": "phase3b_compositionality",
     "phase4": "phase4_lens_pcs",
     "lens_pcs": "phase4_lens_pcs",
     "phase5": "phase5_extensions",
@@ -89,6 +92,7 @@ stages:
   phase1_stimuli        circumplex emotion stimulus set (GATE)  (no model)
   phase2_vectors        one residual vector per emotion (GATE)  (needs the GPU)
   phase3_pca            PCA across the emotion vectors (GATE)  (no model)
+  phase3b_compositionality  reusable valence/arousal components (no model)
   phase4_lens_pcs       J-lens the principal components (GATE) (needs the GPU)
   phase5_extensions     layer sweep / perspective / within-emotion (GATES)
   phase6_decompose      reportable / remainder split (GATE)   (needs the GPU)
@@ -109,6 +113,7 @@ that wants a human to look at it before the next phase runs:
   python run.py phase2 --limit 256       # throughput benchmark
   python run.py phase2                   # extract + the reliability gate
   python run.py phase3                   # PCA + the circumplex gate
+  python run.py phase3b                  # factorial compositionality test
   python run.py phase4 --dry-run         # lens vs PCs; no model weights
   python run.py phase4                   # lens the PCs, both ends
   python run.py phase5 layer-sweep       # where the circumplex lives

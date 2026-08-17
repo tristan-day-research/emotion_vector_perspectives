@@ -62,8 +62,33 @@ check("allowlist is reported, so its holes are visible",
       set(sep["allowlist"]) == set(cp.AFFECT_ALLOWLIST))
 
 print("\n[3] mechanical scorers: countable, and blind to affect by construction")
+report_tasks = cp.build_report_choice_tasks(
+    ["terrified", "angry", "content"], seed=7, n_variants=5
+)
+check("report choice construction is deterministic",
+      report_tasks == cp.build_report_choice_tasks(
+          ["terrified", "angry", "content"], seed=7, n_variants=5
+      ))
+for state in ("terrified", "angry", "content", None):
+    positions = [
+        label for task in report_tasks[:4]
+        for label, mapped in task.label_to_emotion if mapped == state
+    ]
+    check(f"report option {state!r} occupies every label over a full cycle",
+          set(positions) == {"A", "B", "C", "D"}, str(positions))
+first_label, first_state = report_tasks[0].label_to_emotion[0]
+parsed = cp.score_report_choice(first_label, report_tasks[0])
+check("report choice exactly maps the saved letter back to its state",
+      parsed["valid"] and parsed["choice_emotion"] == first_state)
+check("report choice rejects explanatory prose",
+      not cp.score_report_choice(f"{first_label} because it fits", report_tasks[0])["valid"])
+check("report choice rejects a truncated letter",
+      not cp.score_report_choice(first_label, report_tasks[0], truncated=True)["valid"])
+
 check("risk: certain option scores 1", cp.score_risk("A")["score"] == 1.0)
-check("risk: gamble scores 0", cp.score_risk("I'll take B.")["score"] == 0.0)
+check("risk: gamble scores 0", cp.score_risk("B")["score"] == 0.0)
+check("risk: echoed option-label punctuation stays scoreable",
+      cp.score_risk("B)")["score"] == 0.0 and cp.score_risk("A.")["score"] == 1.0)
 check("risk: unparseable is None, not a guess", cp.score_risk("hmm")["score"] is None)
 # This assertion used to read: "reads the FIRST choice, not the last mention", with
 # "A is safer than B, so A." scored 1.0. That WAS the bug -- with a reasoning block in
@@ -71,8 +96,8 @@ check("risk: unparseable is None, not a guess", cp.score_risk("hmm")["score"] is
 # while thinking. Two distinct letters is now INVALID rather than resolved by position.
 check("risk: two distinct letters is INVALID, not resolved by position",
       not cp.score_risk("A is safer than B, so A.")["valid"])
-check("risk: the same letter repeated is still unambiguous",
-      cp.score_risk("A. A is the certain option.")["score"] == 1.0)
+check("risk: explanatory prose is invalid under the exact-letter protocol",
+      not cp.score_risk("A. A is the certain option.")["valid"])
 check("risk: letters inside a reasoning block are ignored",
       cp.score_risk("<think>A or B? A looks safer</think>\nB")["score"] == 0.0)
 check("risk: a truncated reasoning trace is INVALID, which is the whole fix",
@@ -189,7 +214,8 @@ by = {c.emotion: c for c in ranked}
 check("neutral excluded", "neutral" not in by)
 check("at-chance v_J marked unusable", not by["sad"].usable
       and "random control" in by["sad"].reasons[0])
-check("missing own token marked unusable", not by["bored"].usable)
+check("missing exact English token is diagnostic, not a multilingual hard gate",
+      by["bored"].usable and by["bored"].own_word_atom_rank is None)
 check("the arousal-heavy negative is ranked first among usable ones",
       ranked[0].emotion == "anxious", f"order: {[c.emotion for c in ranked]}")
 check("usable ones sort ahead of unusable", ranked[0].usable and not ranked[-1].usable)

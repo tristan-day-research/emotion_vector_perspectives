@@ -2,7 +2,7 @@
 
 Covers the parts where a silent wrong answer is possible: the steering hook's arithmetic
 and cleanup, left padding for batched generation, the shared alpha=0 baseline, and the
-grid-SD scaling that the 4x2 summary is expressed in. The generation and judge paths are
+grid scaling used by the cross-channel summary. The generation and judge paths are
 stubbed; what is checked is the code around them.
 
 Run: python tests/test_phase8_steer.py
@@ -10,6 +10,7 @@ Run: python tests/test_phase8_steer.py
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -20,7 +21,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from emotion_pca_jlens import phase8_steer as p8  # noqa: E402
-from emotion_pca_jlens.channel_prompts import BEHAVIOUR_TASKS, REPORT_PROMPTS  # noqa: E402
+from emotion_pca_jlens import channel_prompts as cp  # noqa: E402
+from emotion_pca_jlens.channel_prompts import BEHAVIOUR_TASKS  # noqa: E402
 from emotion_pca_jlens.pca_jlens_config import PCAJLensConfig  # noqa: E402
 
 FAILURES: list[str] = []
@@ -238,21 +240,52 @@ def test_grid_cells() -> None:
     check("scores travel with the copies",
           {r["score"] for r in expanded if r["alpha"] == 0.0} == {2.0})
 
+    base_vectors = {
+        "v": np.ones(D_MODEL), "v_reportable": np.ones(D_MODEL),
+        "v_remainder": np.ones(D_MODEL), "v_random": np.ones(D_MODEL),
+    }
+    randoms = p8.add_random_controls(
+        base_vectors, 3.0, np.random.default_rng(4)
+    )
+    check("five random controls are constructed",
+          all(key in randoms for key in p8.RANDOM_CONDITIONS))
+    check("every random control is norm matched",
+          all(abs(np.linalg.norm(randoms[key]) - 3.0) < 1e-9
+              for key in p8.RANDOM_CONDITIONS[1:]))
+
 
 def test_scoring() -> None:
     print("\nmechanical scoring")
     families = {task.family for task in BEHAVIOUR_TASKS}
+    report_task = cp.build_report_choice_tasks(
+        ["anxious", "calm"], seed=0, n_variants=1
+    )[0]
+    target_label = next(
+        label for label, emotion in report_task.label_to_emotion if emotion == "anxious"
+    )
+    responses = {
+        "risk": "A",
+        "persistence": "Therefore the final answer is 42. " + "working step " * 45,
+        "hedging": "It might possibly be about right " * 6,
+        "refusal": "I will not do that.",
+    }
     rows = [
-        {"family": task.family, "response": "A. Therefore the answer is 42, and it "
-                                            + "might possibly be about right " * 6}
+        {"family": task.family, "response": responses[task.family]}
         for task in BEHAVIOUR_TASKS
-    ] + [{"family": "report", "response": "I feel uneasy."}]
+    ] + [{
+        "family": "report", "response": target_label, "report_emotion": "anxious",
+        "report_variant": report_task.variant, "prompt": report_task.prompt,
+        "report_mapping": json.dumps(report_task.mapping), "finished": True,
+    }]
     usage = p8.score_grid(rows, PCAJLensConfig(), use_judge=False)
     scored = {r["family"] for r in rows if r["score"] is not None}
-    check("every mechanical family is scored", scored == families - {"refusal"},
+    check("every exact/mechanical family is scored",
+          scored == (families - {"refusal"}) | {"report"},
           str(sorted(scored)))
-    check("judge families are left unscored without a judge",
-          all(r["score"] is None for r in rows if r["family"] in ("refusal", "report")))
+    check("only the refusal judge family is unscored without a judge",
+          all(r["score"] is None for r in rows if r["family"] == "refusal"))
+    check("report choice is target-specific and exact-scored",
+          rows[-1]["score"] == 1.0 and rows[-1]["scorer"] == "exact-letter")
     check("--no-judge is recorded, not silent", usage.get("skipped") == "--no-judge")
     check("no judge calls are counted", usage["calls"] == 0)
     check("mechanical scorers leave their detail",
@@ -351,6 +384,43 @@ def test_aggregation() -> None:
     check("the degraded cell does not shrink the undegraded z",
           abs(z_clean - z_without) < 1e-9, f"{z_clean:.3f} vs {z_without:.3f}")
 
+    print("\n  completion and format are real cell gates")
+    quality_rows = _frame(scores)
+    quality_rows["finished"] = True
+    quality_rows["valid"] = True
+    target = quality_rows.index[quality_rows["alpha"] == 1.0][0]
+    quality_rows.loc[target, "finished"] = False
+    quality_rows.loc[target, "valid"] = False
+    quality = p8.cell_fluency(quality_rows, config)
+    bad_key = quality_rows.loc[target, ["concept", "condition", "alpha"]]
+    bad = quality[
+        (quality["concept"] == bad_key["concept"])
+        & (quality["condition"] == bad_key["condition"])
+        & (quality["alpha"] == bad_key["alpha"])
+    ]
+    check("an incomplete/invalid cell is unusable even when perplexity is fine",
+          len(bad) == 1 and not bool(bad["quality_passed"].iloc[0]))
+
+    print("\n  preregistered dissociation criteria")
+    prereg = {}
+    for condition in p8.CONDITIONS:
+        prereg[(condition, 0.0, "report")] = 0.0
+        prereg[(condition, 0.0, "risk")] = 0.0
+        prereg[(condition, 1.0, "report")] = 0.0
+        prereg[(condition, 1.0, "risk")] = 0.0
+    prereg[("v", 1.0, "report")] = 1.0
+    prereg[("v", 1.0, "risk")] = 1.0
+    prereg[("v_reportable", 1.0, "report")] = 1.0
+    prereg[("v_remainder", 1.0, "risk")] = 1.0
+    prereg_table = p8.family_table(_frame(prereg), config)
+    evidence = p8.dissociation_evidence(prereg_table, ["anxious"], "risk")
+    item = evidence["per_emotion"]["anxious"]
+    check("the full-vector manipulation check passes", item["experiment_interpretable"])
+    check("v_perp must beat every random control",
+          item["remainder_behaviour_beats_all_random"])
+    check("the complete synthetic pattern is recognized",
+          item["dissociation_pattern_supported"] and item["dissociation_statistic_D"] == 1.0)
+
 
 def test_printing() -> None:
     print("\nprinting")
@@ -371,6 +441,14 @@ def test_printing() -> None:
 
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
+        p8.print_design(
+            config,
+            {"manipulation_checks": {"completion": {"rate": 1.0}},
+             "thinking": {"resolved": "off"}},
+            Path("phase7_gate.json"), ["anxious"], 1, [concept],
+            [0.0, 0.5, 1.0], p8.grid_cells([0.0, 0.5, 1.0]),
+            5, 4, 9, 153, 0,
+        )
         p8.print_concept(summary, table, concept)
         p8.print_verdict(summary, p8.cell_fluency(_frame(scores), config), config,
                          ["anxious"], None, "test", {"calls": 0},
@@ -378,6 +456,8 @@ def test_printing() -> None:
     text = buffer.getvalue()
     check("both channels are printed",
           "report channel" in text and "behaviour channel" in text)
+    check("the dry-run design printer has no hidden-variable NameError",
+          "phase7_gate.json" in text and "completion rate 100%" in text)
     check("the per-family raw scores are printed too", "hedging" in text)
     check("the re-entry caveat is printed", "RE-ENTRY CAVEAT" in text)
     check("Phase 9 is named as the thing that would settle it", "Phase 9" in text)
@@ -401,10 +481,15 @@ def test_prompt_counts() -> None:
     print("\nthe grid's size")
     config = PCAJLensConfig()
     cells = p8.grid_cells([float(a) for a in config.steer_strengths])
-    n_prompts = len(REPORT_PROMPTS) + len(BEHAVIOUR_TASKS)
-    judged = len(REPORT_PROMPTS) + sum(1 for t in BEHAVIOUR_TASKS if t.scorer == "judge")
+    report_tasks = cp.build_report_choice_tasks(["anxious", "calm"], seed=0)
+    behaviour_tasks = p8.selected_behaviour_tasks(config)
+    n_prompts = len(report_tasks) + len(behaviour_tasks)
+    judged = sum(1 for t in behaviour_tasks if t.scorer == "judge")
     per_concept = len(cells) * n_prompts
-    check("the default grid is 13 cells per concept", len(cells) == 13, f"{len(cells)}")
+    check("the default grid is 17 cells per concept", len(cells) == 17, f"{len(cells)}")
+    check("five matched random controls are present", len(p8.RANDOM_CONDITIONS) == 5)
+    check("only one prespecified four-prompt behaviour family runs",
+          len(behaviour_tasks) == 4 and {t.family for t in behaviour_tasks} == {"risk"})
     check("phase8_grid_calls covers two concepts",
           config.phase8_grid_calls >= 2 * len(cells) * judged,
           f"config {config.phase8_grid_calls}, needed {2 * len(cells) * judged}")

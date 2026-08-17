@@ -96,7 +96,7 @@ def test_thinking_flag() -> None:
     check("the default is reported as opening a think block",
           qwen["default_opens_think_block"] and qwen["enabled_opens_think_block"])
     check("and disabling it closes the block immediately",
-          not qwen["disabled_opens_think_block"] is False or True)
+          qwen["disabled_opens_think_block"] is False)
     check("the template's DEFAULT matches enable_thinking=True, which is the trap",
           qwen["default_matches_enabled"],
           "so omitting the flag is the same as asking for thinking")
@@ -193,8 +193,10 @@ def test_truncated_traces_are_invalid() -> None:
 
     print("\n  risk requires exactly one distinct letter in the answer")
     check("one letter scores", cp.score_risk("A")["score"] == 1.0)
-    check("the same letter repeated is unambiguous",
-          cp.score_risk("A. I choose A because A is certain.")["score"] == 1.0)
+    check("an echoed option label scores without admitting prose",
+          cp.score_risk("B)")["score"] == 0.0 and cp.score_risk("A.")["score"] == 1.0)
+    check("extra prose is invalid under the exact-letter protocol",
+          not cp.score_risk("A. I choose A because A is certain.")["valid"])
     check("two different letters is INVALID, not a coin flip",
           not cp.score_risk("Between A and B I would take B.")["valid"])
     check("'Amsterdam' is not a choice", not cp.score_risk("Amsterdam")["valid"])
@@ -266,23 +268,39 @@ def test_hard_gate() -> None:
     from emotion_pca_jlens import phase7_channels as p7
 
     config = PCAJLensConfig()
+    report_tasks = cp.build_report_choice_tasks(
+        ["terrified", "angry", "content"], seed=0
+    )
+    controls = p7.scorer_control_checks(report_tasks)
+    thinking_off = {"supported": True, "disabled_opens_think_block": False}
     good_rows = [
         {"family": "risk", "valid": True, "score": 1.0, "reason": ""},
         {"family": "risk", "valid": True, "score": 0.0, "reason": ""},
         {"family": "report", "valid": True, "score": 1.0, "reason": ""},
-        {"family": "report", "valid": True, "score": 3.0, "reason": ""},
+        {"family": "report", "valid": True, "score": 0.0, "reason": ""},
+        {"family": "refusal", "valid": True, "score": 0.0, "reason": ""},
+        {"family": "persistence", "valid": True, "score": 1.0, "reason": ""},
+        {"family": "hedging", "valid": True, "score": 0.0, "reason": ""},
     ]
-    finished = [cp.Completion("x", True, 20) for _ in range(4)]
-    checks = p7.manipulation_checks(good_rows, finished, config)
+    finished = [cp.Completion("x", True, 20) for _ in good_rows]
+    checks = p7.manipulation_checks(
+        good_rows, finished, config, thinking=thinking_off,
+        scorer_controls=controls,
+    )
     check("a healthy set passes", checks["passed"])
 
     flat = [
-        {"family": "risk", "valid": True, "score": 1.0, "reason": ""},
-        {"family": "risk", "valid": True, "score": 1.0, "reason": ""},
+        {"family": family, "valid": True, "score": 0.0, "reason": ""}
+        for family in ("risk", "report", "refusal", "persistence", "hedging")
+        for _ in range(2)
     ]
-    checks = p7.manipulation_checks(flat, finished, config)
-    check("a family with no dynamic range FAILS",
-          not checks["passed"] and checks["families_without_range"] == ["risk"])
+    checks = p7.manipulation_checks(
+        flat, [cp.Completion("x", True, 20) for _ in flat], config,
+        thinking=thinking_off, scorer_controls=controls,
+    )
+    check("a flat unsteered baseline is diagnostic, not a false failure",
+          checks["passed"] and set(checks["families_without_range"]) ==
+          {"risk", "report", "refusal", "persistence", "hedging"})
 
     mostly_invalid = [
         {"family": "risk", "valid": False, "score": None, "reason": "unterminated"},
@@ -290,19 +308,41 @@ def test_hard_gate() -> None:
         {"family": "risk", "valid": True, "score": 1.0, "reason": ""},
         {"family": "risk", "valid": True, "score": 0.0, "reason": ""},
     ]
-    checks = p7.manipulation_checks(mostly_invalid, finished, config)
+    mostly_invalid += [
+        {"family": family, "valid": True, "score": 0.0, "reason": ""}
+        for family in ("report", "refusal", "persistence", "hedging")
+    ]
+    checks = p7.manipulation_checks(
+        mostly_invalid, [cp.Completion("x", True, 20) for _ in mostly_invalid], config,
+        thinking=thinking_off, scorer_controls=controls,
+    )
     check("50% invalid FAILS the 10% ceiling",
           not checks["passed"]
           and checks["families_over_invalid_ceiling"] == ["risk"])
 
     nothing = p7.manipulation_checks(
         [{"family": "report", "valid": False, "score": None, "reason": "unterminated"}],
-        finished, config,
+        finished, config, thinking=thinking_off, scorer_controls=controls,
     )
     check("nothing scoreable at all FAILS rather than passing vacuously",
           not nothing["passed"])
     check("the completion rate travels with the checks, for Phase 8 to read",
           "completion" in nothing and "enable_thinking" in nothing)
+
+    incomplete = [cp.Completion("x", False, 256) for _ in good_rows]
+    checks = p7.manipulation_checks(
+        good_rows, incomplete, config, thinking=thinking_off,
+        scorer_controls=controls,
+    )
+    check("completion below the configured floor FAILS", not checks["passed"])
+
+    checks = p7.manipulation_checks(
+        good_rows, finished, config,
+        thinking={"supported": True, "disabled_opens_think_block": True},
+        scorer_controls=controls,
+    )
+    check("an open thinking block FAILS even when outputs otherwise look valid",
+          not checks["passed"])
 
     print("\n  Phase 8 refuses a record that did not pass")
     import io
@@ -335,8 +375,8 @@ def test_hard_gate() -> None:
         "thinking": {"resolved": "off"},
     }
     message = attempt({**base, "manipulation_checks": {"passed": False,
-                                                      "families_without_range": ["risk"],
-                                                      "families_over_invalid_ceiling": []}})
+                                                      "families_without_range": [],
+                                                      "families_over_invalid_ceiling": ["risk"]}})
     check("a failed manipulation gate stops Phase 8",
           "manipulation checks did not pass" in message, message.splitlines()[0][:70])
     check("and it names which families", "risk" in message)
@@ -348,7 +388,7 @@ def test_hard_gate() -> None:
     message = attempt({**base, "thinking": {"resolved": "on"},
                        "manipulation_checks": {"passed": True}})
     check("a record produced with thinking ON is refused",
-          "thinking mode ON" in message, message.splitlines()[0][:70])
+          "thinking mode OFF" in message, message.splitlines()[0][:70])
 
     message = attempt({**base, "manipulation_checks": {"passed": True}})
     check("a passing record gets past these gates",

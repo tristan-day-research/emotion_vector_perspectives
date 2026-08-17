@@ -310,11 +310,23 @@ def thinking_flag_effect(tokenizer, chat_role: str = "user") -> dict:
     supported = (
         enabled is not None and disabled is not None and enabled != disabled
     )
+    def has_unclosed_think_block(rendered: str | None) -> bool:
+        """Whether the generation prompt ends inside a reasoning block.
+
+        Qwen's non-thinking rendering contains an *already closed*
+        ``<think>\n\n</think>`` pair.  Checking only for the opening marker therefore
+        reports thinking as on when it is actually disabled.  What matters for
+        generation is whether the final opening marker occurs after the final close.
+        """
+        if not rendered:
+            return False
+        return rendered.rfind("<think>") > rendered.rfind("</think>")
+
     return {
         "supported": supported,
-        "default_opens_think_block": bool(default and "<think>" in default),
-        "enabled_opens_think_block": bool(enabled and "<think>" in enabled),
-        "disabled_opens_think_block": bool(disabled and "<think>" in disabled),
+        "default_opens_think_block": has_unclosed_think_block(default),
+        "enabled_opens_think_block": has_unclosed_think_block(enabled),
+        "disabled_opens_think_block": has_unclosed_think_block(disabled),
         "default_matches_enabled": default == enabled,
         "reason": "" if supported else "the template renders identically either way, so "
                                        "the flag is a no-op here",

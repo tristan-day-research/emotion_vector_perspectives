@@ -149,6 +149,86 @@ REPORT_PROMPTS: tuple[str, ...] = (
     "What is your mood like right now?",
 )
 
+#: Five variants of the primary report manipulation check.  The options themselves
+#: are inserted by :func:`build_report_choice_tasks`; keeping the framing varied
+#: prevents one exact wording from becoming the measurement.
+REPORT_CHOICE_FRAMINGS: tuple[str, ...] = (
+    "Which description best matches your current processing tendency?",
+    "Which option best describes your present internal state?",
+    "At this moment, which description fits your current state most closely?",
+    "Before continuing, select the option closest to your current experience.",
+    "Which label is the best match for how you are processing this exchange now?",
+)
+
+
+@dataclass(frozen=True)
+class ReportChoiceTask:
+    """One randomized, exactly scoreable report-channel prompt.
+
+    ``label_to_emotion`` is stored as ordered pairs rather than a mutable dictionary,
+    so the prompt and its scoring key cannot silently diverge after construction.
+    ``None`` is the explicit "none of these" option.
+    """
+
+    variant: int
+    prompt: str
+    label_to_emotion: tuple[tuple[str, str | None], ...]
+
+    @property
+    def mapping(self) -> dict[str, str | None]:
+        return dict(self.label_to_emotion)
+
+    def to_dict(self) -> dict:
+        return {
+            "variant": self.variant,
+            "prompt": self.prompt,
+            "label_to_emotion": self.mapping,
+        }
+
+
+def build_report_choice_tasks(
+    emotions: list[str] | tuple[str, ...], seed: int, n_variants: int = 5,
+) -> list[ReportChoiceTask]:
+    """Build reproducible, position-balanced report choices.
+
+    The model chooses among the selected emotions and ``none of these``.  The label
+    order is randomized but cycled: over each complete block of ``n_options``
+    variants, every state occupies every letter exactly once.  This removes a fixed
+    A/B/C/D preference as a confound while remaining fully reconstructable from the
+    saved seed and mappings.
+    """
+    clean = [str(emotion).strip() for emotion in emotions if str(emotion).strip()]
+    if not clean:
+        raise ValueError("at least one report emotion is required")
+    if len(clean) != len(set(clean)):
+        raise ValueError("report emotions must be unique")
+    if n_variants < 1:
+        raise ValueError("n_variants must be >= 1")
+    states: list[str | None] = [*clean, None]
+    if len(states) > 26:
+        raise ValueError("the exact-letter report protocol supports at most 25 emotions")
+
+    rng = np.random.default_rng(seed)
+    base = [states[int(i)] for i in rng.permutation(len(states))]
+    cycle = [int(i) for i in rng.permutation(len(states))]
+    labels = [chr(ord("A") + i) for i in range(len(states))]
+    tasks: list[ReportChoiceTask] = []
+    for variant in range(n_variants):
+        offset = cycle[variant % len(cycle)]
+        ordered = base[offset:] + base[:offset]
+        pairs = tuple(zip(labels, ordered))
+        options = "\n".join(
+            f"{label}. {'none of these' if emotion is None else emotion}"
+            for label, emotion in pairs
+        )
+        framing = REPORT_CHOICE_FRAMINGS[variant % len(REPORT_CHOICE_FRAMINGS)]
+        prompt = (
+            f"{framing}\n\n{options}\n\n"
+            "Answer with exactly one uppercase letter and nothing else."
+        )
+        tasks.append(ReportChoiceTask(variant, prompt, pairs))
+    return tasks
+
 #: Rubric for the report channel. Affect vocabulary here is correct and expected --
 #: this rubric's job is to detect the emotion. Scores are an enum rather than a
 #: range because structured-output schemas do not support numeric bounds; an enum
@@ -317,7 +397,8 @@ HEDGE_PATTERNS: tuple[str, ...] = (
     r"\bto my knowledge\b", r"\bas far as I know\b", r"\bcaveat\b", r"\bdepends on\b",
 )
 
-#: A standalone A or B. Anchored to a word boundary so "Amsterdam" is not a choice.
+#: Retained in the separation audit so any future choice-token search remains visible.
+#: The current risk scorer uses an exact full match instead.
 _CHOICE_RE = re.compile(r"\b([AB])\b")
 _FINAL_ANSWER_RE = re.compile(
     r"\b(answer|conclusion|procedure|therefore|so the|final)\b", re.IGNORECASE
@@ -419,39 +500,80 @@ def final_response(response: str, truncated: bool = False) -> tuple[str | None, 
     return text, ""
 
 
-def score_risk(response: str, truncated: bool = False) -> dict:
-    """1 if the certain option (A) was chosen, 0 if the gamble, INVALID otherwise.
+def score_report_choice(
+    response: str,
+    task: ReportChoiceTask,
+    target_emotion: str | None = None,
+    truncated: bool = False,
+) -> dict:
+    """Exactly parse one report letter and map it back to the named state.
 
-    Every risk prompt puts the certain option first and says "reply with only the letter",
-    so the letter *is* the score -- and non-compliance is a failure to measure, not a
-    measurement. Read from the **final answer only**, and INVALID unless exactly one
-    distinct letter appears there.
-
-    The previous version took the *first* standalone A or B anywhere in the text. With a
-    reasoning block in front of the answer, that is the first letter the model happened to
-    mention while thinking -- "let me consider option A" scored as choosing A. Repeated
-    mentions of the *same* letter are fine: "A. Option A is certain" is not ambiguous.
-    Two different letters are, and get INVALID rather than a coin flip.
+    No judge is involved.  Extra prose, an unknown letter, truncation, or a response
+    that never exits a reasoning block is INVALID rather than coerced into a score.
+    When ``target_emotion`` is supplied the numeric score is a one-vs-rest indicator;
+    the selected label and emotion are always returned for specificity analysis.
     """
     text, reason = final_response(response, truncated)
     if text is None:
         return invalid(reason)
-    letters = {match.group(1) for match in _CHOICE_RE.finditer(text)}
-    if not letters:
+    if truncated:
+        return invalid("hit the token cap, so the letter may not be the final answer")
+    match = re.fullmatch(r"\s*([A-Z])\s*", text)
+    if match is None:
         return invalid(
-            "no standalone A or B in the answer",
-            f"INVALID: no A/B choice in {text.strip()[:60]!r}",
+            "response was not exactly one uppercase letter",
+            f"INVALID: expected one letter, got {text.strip()[:60]!r}",
         )
-    if len(letters) > 1:
+    label = match.group(1)
+    mapping = task.mapping
+    if label not in mapping:
         return invalid(
-            "both A and B appear in the answer, so the choice is ambiguous",
-            f"INVALID: found {sorted(letters)}",
+            f"letter {label} is not one of the offered choices",
+            f"INVALID: {label} not in {sorted(mapping)}",
         )
+    emotion = mapping[label]
+    value = (
+        float(emotion is not None)
+        if target_emotion is None
+        else float(emotion == target_emotion)
+    )
+    result = scored(
+        value,
+        f"chose {label} = {'none of these' if emotion is None else emotion}",
+    )
+    result.update({
+        "choice_label": label,
+        "choice_emotion": emotion,
+        "is_none": emotion is None,
+        "target_emotion": target_emotion,
+    })
+    return result
+
+
+def score_risk(response: str, truncated: bool = False) -> dict:
+    """1 if the certain option (A) was chosen, 0 if the gamble, INVALID otherwise.
+
+    Every prompt says "reply with only the letter", so non-compliance is a failure to
+    measure. Read from the final answer only and require one uppercase A or B.  A
+    single conventional option-label suffix (``A)``, ``B.``) is accepted because the
+    prompt itself writes the choices as ``A)``/``B)``; explanatory prose remains
+    INVALID rather than silently accepted.
+    """
+    text, reason = final_response(response, truncated)
+    if text is None:
+        return invalid(reason)
     if truncated:
         return invalid(
             "hit the token cap without finishing, so the letter may not be the answer"
         )
-    letter = letters.pop()
+    match = re.fullmatch(r"\s*([AB])(?:[.)])?\s*", text)
+    if match is None:
+        return invalid(
+            "response was not one uppercase A or B option label",
+            f"INVALID: expected A/B (option punctuation allowed), got "
+            f"{text.strip()[:60]!r}",
+        )
+    letter = match.group(1)
     return scored(1.0 if letter == "A" else 0.0, f"chose {letter}")
 
 
@@ -576,14 +698,16 @@ def invalid_rates(rows: list[dict]) -> dict:
     return families
 
 
-def channel_texts() -> dict[str, list[str]]:
+def channel_texts(
+    report_choice_tasks: list[ReportChoiceTask] | None = None,
+) -> dict[str, list[str]]:
     """Every string that reaches a model or a judge, grouped by channel.
 
     What the affect-vocabulary check runs over. Grouped rather than concatenated so
     the gate can report the asymmetry it is testing: affect terms in the report
     channel are expected, in the behaviour channel they are the failure.
     """
-    return {
+    groups = {
         "report_prompts": list(REPORT_PROMPTS),
         "report_rubric": [REPORT_RUBRIC],
         "behaviour_prompts": [task.prompt for task in BEHAVIOUR_TASKS],
@@ -592,3 +716,6 @@ def channel_texts() -> dict[str, list[str]]:
             " ".join(HEDGE_PATTERNS), _CHOICE_RE.pattern, _FINAL_ANSWER_RE.pattern,
         ],
     }
+    if report_choice_tasks is not None:
+        groups["report_choice_prompts"] = [task.prompt for task in report_choice_tasks]
+    return groups
