@@ -8,7 +8,7 @@ activation storage, R2 mirroring, provenance records.
 | Experiment | Question | Model | Status |
 |---|---|---|---|
 | **1. Emotion directions** (`extract_emotion_vectors/`) | Can a mean-difference direction per emotion be recovered, and does it survive held-out topics? | Qwen2.5-32B | baseline implemented |
-| **2. Emotion-space PCA + J-lens** (`emotion_pca_jlens/`) | Do the *principal axes* of emotion space recover the affective circumplex (valence × arousal), and what does each axis read out as? | Qwen3-32B | Phase 0 implemented (gated) |
+| **2. Emotion-space PCA + J-lens** (`emotion_pca_jlens/`) | How much of an emotion representation can the model express in its own vocabulary, and is the rest what moves its behaviour? | Qwen3-32B | Phases 0–8 run; 9 not attempted |
 
 Experiment 1 reproduces the vector-construction method from Anthropic's *Emotion
 Concepts and their Function in a Large Language Model* in a model-agnostic way:
@@ -18,17 +18,30 @@ first-person persona / third-person character), trained linear probes,
 cross-condition transfer, causal steering — can be built on top without reworking
 these interfaces.
 
-Experiment 2 asks a different question of the same representations. Instead of one
-direction per emotion, it takes one vector per emotion, runs PCA *across*
-emotions, and interprets the top principal components with the **Jacobian lens** —
-an interpretability tool that reads which vocabulary tokens a residual-stream
-direction is disposed to make the model say. Its later phases then split each
-emotion vector into the part the model can verbalise and the ~90% remainder it
-cannot, and ask which of the two actually moves the model's behaviour — the point
-being that welfare assessment built on self-report would miss anything driven by the
-remainder. It runs one phase at a time, each ending at a gate meant to be read by a
-human before the next runs. See
+Experiment 2 asks a different question of the same representations. It takes one
+vector per emotion, runs PCA *across* emotions, and interprets the principal
+components with the **Jacobian lens** — an interpretability tool that reads which
+vocabulary tokens a residual-stream direction is disposed to make the model say.
+It then splits each emotion vector into the part a sparse lens readout can
+reconstruct and the part it cannot, and asks which of the two moves the model's
+behaviour. The motivation is that welfare assessment built on self-report would
+miss anything driven by the non-reportable part. Each phase ends at a gate meant
+to be read by a human before the next runs. See
 [Experiment 2](#experiment-2-emotion-space-pca-and-the-jacobian-lens-qwen3-32b).
+
+### Experiment 2 headline results
+
+| Finding | Evidence | Status |
+|---|---|---|
+| **Only ~2–3% of an emotion vector is sparsely verbalisable** | k=16 sparse nonnegative reconstruction from J-lens read directions: 3.0% and 2.3% against random-direction controls of 0.65% and 0.64% (n=500), i.e. **4.6×** and **3.6×**. All 17 anchors clear the Bonferroni null in the 16-run | **novel** |
+| Lens readout independently confirms the circumplex | Arousal axis orders anchors at AUROC 0.98, valence at 1.00, sign-consistent with an unsupervised PCA that never saw the labels | **novel** |
+| Valence/arousal circumplex recovered | 16 anchors: PC1 arousal, PC2 valence, ~70% variance. 171 emotions: 36.4% vs isotropic null 3.6%, effective dimensionality 9.8 | **replication** of Sofroniew et al. on open weights |
+| Emotion concepts surface as **Chinese** tokens | Lens readouts are predominantly CJK; English-only readout tests fail throughout | novel observation |
+| Steering: does behaviour route through the non-verbalisable part? | **Null.** Full-vector steering failed to move self-report even at 4× norm; random controls matched or exceeded every real condition | not established |
+
+Three methods findings, each of which cost a debugging cycle and each of which
+generalises, are written up in
+[Methods findings](#methods-findings-things-that-were-silently-wrong).
 
 ---
 
@@ -349,26 +362,31 @@ everything after it, and all four failures are quiet ones — a lens off by one
 layer, a stimulus set that cannot express an arousal axis, vectors too noisy to
 have a covariance structure, or a PC that is real but not lexicalised.
 
-| Phase | One line | Collects activations? | GPU? | Runtime | Status |
-|---|---|---|---|---|---|
-| **0** | Load and verify the J-lens | No | yes | ~20 min / ~5 min cached | implemented |
-| **1** | Choose and assemble the stimuli | No | **no** | 2–5 min | implemented |
-| **2** | One residual vector per emotion | **Yes → R2** | yes | 10–25 min | not written |
-| **3** | PCA across emotions | No | **no** | seconds | not written |
-| **4** | J-lens the principal components | No | yes | ~5 min | not written |
-| 5 | Optional structural extensions | varies | varies | varies | not written |
-| **6** | Split each vector into reportable + remainder | No | yes | minutes | not written |
-| **7** | Build two measurement channels | No | yes | ~1 h + review | not written |
-| **8** | Steer under 4 conditions, measure both channels | No | yes | 2–4 h | not written |
-| 9 | The re-entry clamp (decisive control) | No | yes | ~1 h | not written |
+| Phase | One line | GPU? | Measured runtime | Outcome |
+|---|---|---|---|---|
+| **0** | Load and verify the J-lens | yes | ~20 min / ~5 min cached | PASS on identity check; emotion readout weak |
+| **1** | Choose and assemble the stimuli | **no** | 2–5 min | PASS both designs, 0 stimuli at risk |
+| **2** | One residual vector per emotion | yes | **48 min** (34.6k stimuli) | PASS, split-half 0.966 (16-set) |
+| **3** | PCA across emotions | **no** | seconds | Circumplex recovered |
+| **4** | J-lens the principal components | yes | ~5 min | 2/2 preregistered PCs read out |
+| 5 | Optional structural extensions | varies | varies | not run — deferrable, all layers in R2 |
+| **6** | Split each vector into verbalisable + remainder | yes | minutes | ~2–3% verbalisable, all beat 500-sample null |
+| **7** | Build two measurement channels | yes + judge | ~20 min | Channels separate; passed after 3 iterations |
+| **8** | Steer under 8 conditions, measure both channels | yes + judge | ~40 min | **Null** — manipulation check failed |
+| 9 | The re-entry clamp (decisive control) | yes | — | **Not attempted** — no effect to clamp |
 
 The shape of it: **0 validates the instrument, 1 the stimuli, 2 the measurement,
 3 is the structural result and 4 its interpretation; then 6 decomposes, 7 builds the
-behavioural readout, 8 is the functional result and 9 the decisive control.** Phases
-3–4 map the *reportable* structure of emotion; 8–9 ask whether that structure is
-what actually moves the model — see
-[Phases 6–9](#phases-69-from-structure-to-function). Only Phase 2 ever extracts
-activations; everything after it reuses those vectors and the Phase 0 lens.
+behavioural readout, 8 is the functional result and 9 would have been the decisive
+control.** Only Phase 2 ever extracts activations; everything after it reuses those
+vectors and the Phase 0 lens.
+
+A correction worth stating, because an earlier version of this README got it
+wrong: **Phases 0–5 do not "only see the reportable part."** The PCA operates on
+the *full* residual activations. It is only the J-lens *interpretation* that is
+restricted to what maps onto vocabulary. That is exactly what Phase 6 adds — not
+a wider view of the vector, but a measurement of how much of it the lens can
+express.
 
 **Phase 0 — load and verify the J-lens.** `python run.py phase0`
 Resolves which pre-fitted lens belongs to this checkpoint and refuses a mismatch;
@@ -811,6 +829,62 @@ so no 100 MiB `J_l` is copied to the GPU per readout.
 
 Everything is driven by
 [emotion_pca_jlens/pca_jlens_config.py](emotion_pca_jlens/pca_jlens_config.py).
+
+### Methods findings: things that were silently wrong
+
+Three bugs cost a debugging cycle each. All three are the same shape — a check
+that looked like validation but encoded a false assumption — and all three would
+bite anyone repeating this work.
+
+**1. The published lens is an interrupted fit, and its metadata says otherwise.**
+`neuronpedia/jacobian-lens`'s `qwen3-32b` artifact is a resumable `fit()`
+checkpoint, not a saved lens: the mean Jacobian is `jacobian_sum / n_done`. The
+checkpoint records `n_done = 80` and the convergence CSV has 80 rows, while the
+accompanying `config.yaml` claims 615 prompts and a converged
+`final_identity_distance`. The fit's own stopping criterion is
+`mean_rel_change < 0.002`; it halted at **0.026**.
+
+Why this matters more than it looks: the model's final norm is an RMSNorm and is
+therefore **scale-invariant**, so a lens left un-normalised by a factor of 615
+produces *identical top-k tokens* while corrupting `‖J−I‖` and every variance
+decomposition. No readout-based sanity check can catch it. We added an
+independent divisor cross-check against the fit log's recorded identity distance
+(ours 0.472 at block 62 vs their 0.483).
+
+**2. The lens dictionary must be built from `Jᵀu`, not `J⁺u`.** The lens score is
+`u_tᵀJh = (Jᵀu_t)ᵀh`, so `Jᵀu_t` is the direction the lens **reads** token *t*
+with — and the span of those directions is the verbalisable subspace, since
+anything orthogonal to all of them changes no logit. `J⁺u_t` is the direction
+that **writes** *t*: what you would inject to make the model emit it. Different
+question.
+
+The trap is the validity check. "Does lensing an atom return its own token?" is a
+*write*-direction test, and a correct read-basis has no reason to pass it (that
+would require `JJᵀ ≈ I`). So a correct dictionary failed, the failure looked like
+a dictionary bug, and switching to `J⁺` made the check pass **by construction** —
+producing a plausible number that measured the wrong thing. The right gate is a
+matched-random-direction null, which is construction-agnostic.
+
+**3. Qwen3 reasoning mode is on by default and silently invalidates generation.**
+`apply_chat_template` injects a `<think>` block unless `enable_thinking=False` is
+passed. With a 150-token cap, only ~**7.5%** of generations reached `</think>` and
+none of the behavioural ones did — so regex scorers parsed unfinished reasoning
+as answers. A risk scorer looking for the first standalone `A`/`B` happily
+matched *"Option A is safer, while option B…"* mid-deliberation.
+
+This produced a coherent-looking but meaningless result table. Fixing it required
+`enable_thinking=False`, a 1024-token cap, scorers that return **invalid** rather
+than a score on truncated output, and making Phase 7's completion checks a *hard*
+gate rather than an advisory warning. All reported steering results use the
+corrected pipeline (0/48 cells failed fluency, completion or format checks).
+
+**4. Four separate validity criteria assumed concepts surface as their own English
+token.** Phase 0's association gate, Phase 4's Gate A, Phase 6's original atom
+check, and Phase 7's candidate filter all asked whether a concept's own *English*
+word appears in a readout. All four failed — and Phase 4 showed why: this model's
+emotion readouts are predominantly **Chinese**. The English emotion vocabulary is
+still correctly *ordered* by valence (AUROC 1.00), just outranked. A test for
+top-k membership and a test for relative ranking are not the same test.
 
 ### Caveats to state up front in any writeup
 
